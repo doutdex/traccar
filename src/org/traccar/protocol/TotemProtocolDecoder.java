@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2013 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,12 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
+import org.traccar.NetworkMessage;
+import org.traccar.helper.BitUtil;
+import org.traccar.helper.Checksum;
 import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
@@ -41,20 +44,20 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
             .number("(d+)|")                     // imei
             .expression("(..)")                  // alarm
             .text("$GPRMC,")
-            .number("(dd)(dd)(dd).d+,")          // time
+            .number("(dd)(dd)(dd).d+,")          // time (hhmmss)
             .expression("([AV]),")               // validity
             .number("(d+)(dd.d+),([NS]),")       // latitude
             .number("(d+)(dd.d+),([EW]),")       // longitude
             .number("(d+.?d*)?,")                // speed
             .number("(d+.?d*)?,")                // course
-            .number("(dd)(dd)(dd)")              // date
+            .number("(dd)(dd)(dd)")              // date (ddmmyy)
             .expression("[^*]*").text("*")
             .number("xx|")                       // checksum
             .number("(d+.d+)|")                  // pdop
             .number("(d+.d+)|")                  // hdop
             .number("(d+.d+)|")                  // vdop
             .number("(d+)|")                     // io status
-            .number("d+|")                       // time
+            .number("d+|")                       // battery time
             .number("d")                         // charged
             .number("(ddd)")                     // battery
             .number("(dddd)|")                   // power
@@ -75,7 +78,7 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
             .number("(d+)|")                     // imei
             .expression("(..)")                  // alarm type
             .number("(dd)(dd)(dd)")              // date (ddmmyy)
-            .number("(dd)(dd)(dd)|")             // time
+            .number("(dd)(dd)(dd)|")             // time (hhmmss)
             .expression("([AV])|")               // validity
             .number("(d+)(dd.d+)|")              // latitude
             .expression("([NS])|")
@@ -103,8 +106,8 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
             .number("xx")                        // length
             .number("(d+)|")                     // imei
             .expression("(..)")                  // alarm type
-            .number("(dd)(dd)(dd)")              // date (yymmdd)
-            .number("(dd)(dd)(dd)")              // time
+            .number("(dd)(dd)(dd)")              // date (ddmmyy)
+            .number("(dd)(dd)(dd)")              // time (hhmmss)
             .number("(xxxx)")                    // io status
             .expression("[01]")                  // charging
             .number("(dd)")                      // battery
@@ -131,11 +134,11 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
     private static final Pattern PATTERN4 = new PatternBuilder()
             .text("$$")                          // header
             .number("dddd")                      // length
-            .text("AA")                          // type
+            .number("(xx)")                      // type
             .number("(d+)|")                     // imei
             .number("(x{8})")                    // status
             .number("(dd)(dd)(dd)")              // date (yymmdd)
-            .number("(dd)(dd)(dd)")              // time
+            .number("(dd)(dd)(dd)")              // time (hhmmss)
             .number("(dd)")                      // battery
             .number("(dd)")                      // external power
             .number("(dddd)")                    // adc 1
@@ -163,7 +166,7 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
             .any()
             .compile();
 
-    private String decodeAlarm(Short value) {
+    private String decodeAlarm123(int value) {
         switch (value) {
             case 0x01:
                 return Position.ALARM_SOS;
@@ -171,6 +174,8 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
                 return Position.ALARM_LOW_BATTERY;
             case 0x11:
                 return Position.ALARM_OVERSPEED;
+            case 0x30:
+                return Position.ALARM_PARKING;
             case 0x42:
                 return Position.ALARM_GEOFENCE_EXIT;
             case 0x43:
@@ -180,15 +185,194 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
         }
     }
 
+    private String decodeAlarm4(int value) {
+        switch (value) {
+            case 0x01:
+                return Position.ALARM_SOS;
+            case 0x02:
+                return Position.ALARM_OVERSPEED;
+            case 0x04:
+                return Position.ALARM_GEOFENCE_EXIT;
+            case 0x05:
+                return Position.ALARM_GEOFENCE_ENTER;
+            case 0x40:
+                return Position.ALARM_SHOCK;
+            case 0x42:
+                return Position.ALARM_ACCELERATION;
+            case 0x43:
+                return Position.ALARM_BRAKING;
+            default:
+                return null;
+        }
+    }
+
+    private boolean decode12(Position position, Parser parser, Pattern pattern) {
+
+        if (parser.hasNext()) {
+            position.set(Position.KEY_ALARM, decodeAlarm123(Short.parseShort(parser.next(), 16)));
+        }
+        DateBuilder dateBuilder = new DateBuilder();
+        int year = 0, month = 0, day = 0;
+        if (pattern == PATTERN2) {
+            day   = parser.nextInt(0);
+            month = parser.nextInt(0);
+            year  = parser.nextInt(0);
+        }
+        dateBuilder.setTime(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
+
+        position.setValid(parser.next().equals("A"));
+        position.setLatitude(parser.nextCoordinate());
+        position.setLongitude(parser.nextCoordinate());
+        position.setSpeed(parser.nextDouble(0));
+        position.setCourse(parser.nextDouble(0));
+
+        if (pattern == PATTERN1) {
+            day   = parser.nextInt(0);
+            month = parser.nextInt(0);
+            year  = parser.nextInt(0);
+        }
+        if (year == 0) {
+            return false; // ignore invalid data
+        }
+        dateBuilder.setDate(year, month, day);
+        position.setTime(dateBuilder.getDate());
+
+        if (pattern == PATTERN1) {
+            position.set(Position.KEY_PDOP, parser.nextDouble());
+            position.set(Position.KEY_HDOP, parser.nextDouble());
+            position.set(Position.KEY_VDOP, parser.nextDouble());
+        } else {
+            position.set(Position.KEY_HDOP, parser.nextDouble());
+        }
+
+        int io = parser.nextBinInt();
+        position.set(Position.KEY_STATUS, io);
+        if (pattern == PATTERN1) {
+            position.set(Position.KEY_ALARM, BitUtil.check(io, 0) ? Position.ALARM_SOS : null);
+            position.set(Position.PREFIX_IN + 3, BitUtil.check(io, 4));
+            position.set(Position.PREFIX_IN + 4, BitUtil.check(io, 5));
+            position.set(Position.PREFIX_IN + 1, BitUtil.check(io, 6));
+            position.set(Position.PREFIX_IN + 2, BitUtil.check(io, 7));
+            position.set(Position.PREFIX_OUT + 1, BitUtil.check(io, 8));
+            position.set(Position.PREFIX_OUT + 2, BitUtil.check(io, 9));
+            position.set(Position.KEY_BATTERY, parser.nextDouble(0) * 0.01);
+        } else {
+            position.set(Position.KEY_ANTENNA, BitUtil.check(io, 0));
+            position.set(Position.KEY_CHARGE, BitUtil.check(io, 1));
+            for (int i = 1; i <= 6; i++) {
+                position.set(Position.PREFIX_IN + i, BitUtil.check(io, 1 + i));
+            }
+            for (int i = 1; i <= 4; i++) {
+                position.set(Position.PREFIX_OUT + i, BitUtil.check(io, 7 + i));
+            }
+            position.set(Position.KEY_BATTERY, parser.nextDouble(0) * 0.1);
+        }
+
+        position.set(Position.KEY_POWER, parser.nextDouble(0));
+        position.set(Position.PREFIX_ADC + 1, parser.next());
+
+        int lac = parser.nextHexInt(0);
+        int cid = parser.nextHexInt(0);
+        if (lac != 0 && cid != 0) {
+            position.setNetwork(new Network(CellTower.fromLacCid(lac, cid)));
+        }
+
+        position.set(Position.PREFIX_TEMP + 1, parser.next());
+        position.set(Position.KEY_ODOMETER, parser.nextDouble(0) * 1000);
+
+        return true;
+    }
+
+    private boolean decode3(Position position, Parser parser) {
+
+        if (parser.hasNext()) {
+            position.set(Position.KEY_ALARM, decodeAlarm123(Short.parseShort(parser.next(), 16)));
+        }
+
+        position.setTime(parser.nextDateTime(Parser.DateTimeFormat.DMY_HMS));
+
+        position.set(Position.PREFIX_IO + 1, parser.next());
+        position.set(Position.KEY_BATTERY, parser.nextDouble(0) * 0.1);
+        position.set(Position.KEY_POWER, parser.nextDouble(0));
+        position.set(Position.PREFIX_ADC + 1, parser.next());
+        position.set(Position.PREFIX_ADC + 2, parser.next());
+        position.set(Position.PREFIX_TEMP + 1, parser.next());
+        position.set(Position.PREFIX_TEMP + 2, parser.next());
+
+        position.setNetwork(new Network(
+                CellTower.fromLacCid(parser.nextHexInt(0), parser.nextHexInt(0))));
+
+        position.setValid(parser.next().equals("A"));
+        position.set(Position.KEY_SATELLITES, parser.nextInt());
+        position.setCourse(parser.nextDouble(0));
+        position.setSpeed(parser.nextDouble(0));
+        position.set(Position.KEY_PDOP, parser.nextDouble());
+        position.set(Position.KEY_ODOMETER, parser.nextInt(0) * 1000);
+
+        position.setLatitude(parser.nextCoordinate());
+        position.setLongitude(parser.nextCoordinate());
+
+        return true;
+    }
+
+    private boolean decode4(Position position, Parser parser) {
+
+        long status = parser.nextHexLong();
+
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 1) ? Position.ALARM_SOS : null);
+        position.set(Position.KEY_IGNITION, BitUtil.check(status, 32 - 2));
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 3) ? Position.ALARM_OVERSPEED : null);
+        position.set(Position.KEY_CHARGE, BitUtil.check(status, 32 - 4));
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 5) ? Position.ALARM_GEOFENCE_EXIT : null);
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 6) ? Position.ALARM_GEOFENCE_ENTER : null);
+        position.set(Position.PREFIX_OUT + 1, BitUtil.check(status, 32 - 9));
+        position.set(Position.PREFIX_OUT + 2, BitUtil.check(status, 32 - 10));
+        position.set(Position.PREFIX_OUT + 3, BitUtil.check(status, 32 - 11));
+        position.set(Position.PREFIX_OUT + 4, BitUtil.check(status, 32 - 12));
+        position.set(Position.PREFIX_IN + 2, BitUtil.check(status, 32 - 13));
+        position.set(Position.PREFIX_IN + 3, BitUtil.check(status, 32 - 14));
+        position.set(Position.PREFIX_IN + 4, BitUtil.check(status, 32 - 15));
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 16) ? Position.ALARM_SHOCK : null);
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 18) ? Position.ALARM_LOW_BATTERY : null);
+        position.set(Position.KEY_ALARM, BitUtil.check(status, 32 - 22) ? Position.ALARM_JAMMING : null);
+
+        position.setValid(BitUtil.check(status, 32 - 20));
+
+        position.setTime(parser.nextDateTime());
+
+        position.set(Position.KEY_BATTERY, parser.nextDouble(0) * 0.1);
+        position.set(Position.KEY_POWER, parser.nextDouble(0));
+
+        position.set(Position.PREFIX_ADC + 1, parser.next());
+        position.set(Position.PREFIX_ADC + 2, parser.next());
+        position.set(Position.PREFIX_ADC + 3, parser.next());
+        position.set(Position.PREFIX_ADC + 4, parser.next());
+        position.set(Position.PREFIX_TEMP + 1, parser.next());
+        position.set(Position.PREFIX_TEMP + 2, parser.next());
+
+        CellTower cellTower = CellTower.fromLacCid(parser.nextHexInt(0), parser.nextHexInt(0));
+        position.set(Position.KEY_SATELLITES, parser.nextInt(0));
+        cellTower.setSignalStrength(parser.nextInt(0));
+        position.setNetwork(new Network(cellTower));
+
+        position.setCourse(parser.nextDouble(0));
+        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextDouble(0)));
+        position.set(Position.KEY_HDOP, parser.nextDouble(0));
+        position.set(Position.KEY_ODOMETER, parser.nextInt(0) * 1000);
+
+        position.setLatitude(parser.nextCoordinate());
+        position.setLongitude(parser.nextCoordinate());
+
+        return true;
+    }
+
     @Override
     protected Object decode(
             Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
 
         String sentence = (String) msg;
-
-        // Determine format
         Pattern pattern = PATTERN3;
-        if (sentence.indexOf("AA") == 6) {
+        if (sentence.charAt(2) == '0') {
             pattern = PATTERN4;
         } else if (sentence.contains("$GPRMC")) {
             pattern = PATTERN1;
@@ -204,8 +388,11 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
+
+        if (pattern == PATTERN4) {
+            position.set(Position.KEY_ALARM, decodeAlarm4(parser.nextHexInt()));
+        }
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, parser.next());
         if (deviceSession == null) {
@@ -213,124 +400,26 @@ public class TotemProtocolDecoder extends BaseProtocolDecoder {
         }
         position.setDeviceId(deviceSession.getDeviceId());
 
+        boolean result;
         if (pattern == PATTERN1 || pattern == PATTERN2) {
-            if (parser.hasNext()) {
-                position.set(Position.KEY_ALARM, decodeAlarm(Short.parseShort(parser.next(), 16)));
-            }
-            DateBuilder dateBuilder = new DateBuilder();
-            int year = 0, month = 0, day = 0;
-            if (pattern == PATTERN2) {
-                day   = parser.nextInt();
-                month = parser.nextInt();
-                year  = parser.nextInt();
-            }
-            dateBuilder.setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-
-            position.setValid(parser.next().equals("A"));
-            position.setLatitude(parser.nextCoordinate());
-            position.setLongitude(parser.nextCoordinate());
-            position.setSpeed(parser.nextDouble());
-            position.setCourse(parser.nextDouble());
-
-            if (pattern == PATTERN1) {
-                day   = parser.nextInt();
-                month = parser.nextInt();
-                year  = parser.nextInt();
-            }
-            if (year == 0) {
-                return null; // ignore invalid data
-            }
-            dateBuilder.setDate(year, month, day);
-            position.setTime(dateBuilder.getDate());
-
-            if (pattern == PATTERN1) {
-                position.set(Position.KEY_PDOP, parser.next());
-                position.set(Position.KEY_HDOP, parser.next());
-                position.set(Position.KEY_VDOP, parser.next());
-            } else {
-                position.set(Position.KEY_HDOP, parser.next());
-            }
-
-            position.set(Position.PREFIX_IO + 1, parser.next());
-            position.set(Position.KEY_BATTERY, parser.next());
-            position.set(Position.KEY_POWER, parser.nextDouble());
-            position.set(Position.PREFIX_ADC + 1, parser.next());
-
-            int lac = parser.nextInt(16);
-            int cid = parser.nextInt(16);
-            if (lac != 0 && cid != 0) {
-                position.setNetwork(new Network(CellTower.fromLacCid(lac, cid)));
-            }
-
-            position.set(Position.PREFIX_TEMP + 1, parser.next());
-            position.set(Position.KEY_ODOMETER, parser.nextDouble() * 1000);
-
+            result = decode12(position, parser, pattern);
         } else if (pattern == PATTERN3) {
-            if (parser.hasNext()) {
-                position.set(Position.KEY_ALARM, decodeAlarm(Short.parseShort(parser.next(), 16)));
-            }
-            DateBuilder dateBuilder = new DateBuilder()
-                    .setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                    .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-            position.setTime(dateBuilder.getDate());
-
-            position.set(Position.PREFIX_IO + 1, parser.next());
-            position.set(Position.KEY_BATTERY, parser.nextDouble() * 0.1);
-            position.set(Position.KEY_POWER, parser.nextDouble());
-            position.set(Position.PREFIX_ADC + 1, parser.next());
-            position.set(Position.PREFIX_ADC + 2, parser.next());
-            position.set(Position.PREFIX_TEMP + 1, parser.next());
-            position.set(Position.PREFIX_TEMP + 2, parser.next());
-
-            position.setNetwork(new Network(
-                    CellTower.fromLacCid(parser.nextInt(16), parser.nextInt(16))));
-
-            position.setValid(parser.next().equals("A"));
-            position.set(Position.KEY_SATELLITES, parser.next());
-            position.setCourse(parser.nextDouble());
-            position.setSpeed(parser.nextDouble());
-            position.set(Position.KEY_PDOP, parser.next());
-            position.set(Position.KEY_ODOMETER, parser.nextInt() * 1000);
-
-            position.setLatitude(parser.nextCoordinate());
-            position.setLongitude(parser.nextCoordinate());
-
-        } else if (pattern == PATTERN4) {
-            position.set(Position.KEY_STATUS, parser.next());
-
-            DateBuilder dateBuilder = new DateBuilder()
-                    .setDate(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                    .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-            position.setTime(dateBuilder.getDate());
-
-            position.set(Position.KEY_BATTERY, parser.nextDouble() * 0.1);
-            position.set(Position.KEY_POWER, parser.nextDouble());
-
-            position.set(Position.PREFIX_ADC + 1, parser.next());
-            position.set(Position.PREFIX_ADC + 2, parser.next());
-            position.set(Position.PREFIX_ADC + 3, parser.next());
-            position.set(Position.PREFIX_ADC + 4, parser.next());
-            position.set(Position.PREFIX_TEMP + 1, parser.next());
-            position.set(Position.PREFIX_TEMP + 2, parser.next());
-
-            CellTower cellTower = CellTower.fromLacCid(parser.nextInt(16), parser.nextInt(16));
-            position.set(Position.KEY_SATELLITES, parser.nextInt());
-            cellTower.setSignalStrength(parser.nextInt());
-            position.setNetwork(new Network(cellTower));
-
-            position.setCourse(parser.nextDouble());
-            position.setSpeed(UnitsConverter.knotsFromKph(parser.nextDouble()));
-            position.set(Position.KEY_HDOP, parser.nextDouble());
-            position.set(Position.KEY_ODOMETER, parser.nextInt() * 1000);
-
-            position.setValid(true);
-            position.setLatitude(parser.nextCoordinate());
-            position.setLongitude(parser.nextCoordinate());
+            result = decode3(position, parser);
+        } else {
+            result = decode4(position, parser);
         }
+
         if (channel != null) {
-            channel.write("ACK OK\r\n");
+            if (pattern == PATTERN4) {
+                String response = "$$0014AA" + sentence.substring(sentence.length() - 6, sentence.length() - 2);
+                response += String.format("%02X", Checksum.xor(response)).toUpperCase();
+                channel.writeAndFlush(new NetworkMessage(response, remoteAddress));
+            } else {
+                channel.writeAndFlush(new NetworkMessage("ACK OK\r\n", remoteAddress));
+            }
         }
-        return position;
+
+        return result ? position : null;
     }
 
 }

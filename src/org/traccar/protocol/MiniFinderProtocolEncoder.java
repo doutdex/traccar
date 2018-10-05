@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2017 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,33 +15,34 @@
  */
 package org.traccar.protocol;
 
+import java.util.TimeZone;
+
 import org.traccar.StringProtocolEncoder;
-import org.traccar.helper.Log;
 import org.traccar.model.Command;
 
 public class MiniFinderProtocolEncoder extends StringProtocolEncoder implements StringProtocolEncoder.ValueFormatter {
 
     @Override
     public String formatValue(String key, Object value) {
-
-        if (key.equals(Command.KEY_ENABLE)) {
-            return (Boolean) value ? "1" : "0";
-        } else if (key.equals(Command.KEY_TIMEZONE)) {
-            return String.format("%+03d", ((Number) value).longValue() / 3600);
-        } else if (key.equals(Command.KEY_INDEX)) {
-            switch (((Number) value).intValue()) {
-                case 0:
-                    return "A";
-                case 1:
-                    return "B";
-                case 2:
-                    return "C";
-                default:
-                    return null;
-            }
+        switch (key) {
+            case Command.KEY_ENABLE:
+                return (Boolean) value ? "1" : "0";
+            case Command.KEY_TIMEZONE:
+                return String.format("%+03d", TimeZone.getTimeZone((String) value).getRawOffset() / 3600000);
+            case Command.KEY_INDEX:
+                switch (((Number) value).intValue()) {
+                    case 0:
+                        return "A";
+                    case 1:
+                        return "B";
+                    case 2:
+                        return "C";
+                    default:
+                        return null;
+                }
+            default:
+                return null;
         }
-
-        return null;
     }
 
     @Override
@@ -74,7 +75,6 @@ public class MiniFinderProtocolEncoder extends StringProtocolEncoder implements 
             case Command.TYPE_SET_INDICATOR:
                 return formatCommand(command, "{%s}LED{%s}", Command.KEY_DEVICE_PASSWORD, Command.KEY_DATA);
             default:
-                Log.warning(new UnsupportedOperationException(command.getType()));
                 return null;
         }
     }

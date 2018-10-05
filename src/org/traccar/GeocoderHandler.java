@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2012 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,65 +15,66 @@
  */
 package org.traccar;
 
-import org.jboss.netty.channel.ChannelEvent;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelUpstreamHandler;
-import org.jboss.netty.channel.Channels;
-import org.jboss.netty.channel.MessageEvent;
-import org.traccar.geocoder.AddressFormat;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.geocoder.Geocoder;
-import org.traccar.helper.Log;
 import org.traccar.model.Position;
 
-public class GeocoderHandler implements ChannelUpstreamHandler {
+@ChannelHandler.Sharable
+public class GeocoderHandler extends ChannelInboundHandlerAdapter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GeocoderHandler.class);
 
     private final Geocoder geocoder;
     private final boolean processInvalidPositions;
-    private final AddressFormat addressFormat;
+    private final int geocoderReuseDistance;
 
     public GeocoderHandler(Geocoder geocoder, boolean processInvalidPositions) {
         this.geocoder = geocoder;
         this.processInvalidPositions = processInvalidPositions;
 
-        String formatString = Context.getConfig().getString("geocoder.format");
-        if (formatString != null) {
-            addressFormat = new AddressFormat(formatString);
-        } else {
-            addressFormat = new AddressFormat();
-        }
+        geocoderReuseDistance = Context.getConfig().getInteger("geocoder.reuseDistance", 0);
     }
 
     @Override
-    public void handleUpstream(final ChannelHandlerContext ctx, ChannelEvent evt) throws Exception {
-        if (!(evt instanceof MessageEvent)) {
-            ctx.sendUpstream(evt);
-            return;
-        }
-
-        final MessageEvent event = (MessageEvent) evt;
-        Object message = event.getMessage();
+    public void channelRead(final ChannelHandlerContext ctx, Object message) throws Exception {
         if (message instanceof Position) {
             final Position position = (Position) message;
             if (processInvalidPositions || position.getValid()) {
-                geocoder.getAddress(addressFormat, position.getLatitude(), position.getLongitude(),
+                if (geocoderReuseDistance != 0) {
+                    Position lastPosition = Context.getIdentityManager().getLastPosition(position.getDeviceId());
+                    if (lastPosition != null && lastPosition.getAddress() != null
+                            && position.getDouble(Position.KEY_DISTANCE) <= geocoderReuseDistance) {
+                        position.setAddress(lastPosition.getAddress());
+                        ctx.fireChannelRead(position);
+                        return;
+                    }
+                }
+
+                Context.getStatisticsManager().registerGeocoderRequest();
+
+                geocoder.getAddress(position.getLatitude(), position.getLongitude(),
                         new Geocoder.ReverseGeocoderCallback() {
                     @Override
                     public void onSuccess(String address) {
                         position.setAddress(address);
-                        Channels.fireMessageReceived(ctx, position, event.getRemoteAddress());
+                        ctx.fireChannelRead(position);
                     }
 
                     @Override
                     public void onFailure(Throwable e) {
-                        Log.warning("Geocoding failed", e);
-                        Channels.fireMessageReceived(ctx, position, event.getRemoteAddress());
+                        LOGGER.warn("Geocoding failed", e);
+                        ctx.fireChannelRead(position);
                     }
                 });
             } else {
-                Channels.fireMessageReceived(ctx, position, event.getRemoteAddress());
+                ctx.fireChannelRead(position);
             }
         } else {
-            Channels.fireMessageReceived(ctx, message, event.getRemoteAddress());
+            ctx.fireChannelRead(message);
         }
     }
 

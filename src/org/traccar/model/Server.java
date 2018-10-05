@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2015 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,14 @@
  */
 package org.traccar.model;
 
-import java.util.TimeZone;
+import org.traccar.Context;
+import org.traccar.database.QueryIgnore;
 
-import org.traccar.helper.Log;
+public class Server extends ExtendedModel {
 
-public class Server extends Extensible {
-
+    @QueryIgnore
     public String getVersion() {
-        return Log.getAppVersion();
+        return Context.getAppVersion();
     }
 
     public void setVersion(String version) {
@@ -88,26 +88,6 @@ public class Server extends Extensible {
         this.mapUrl = mapUrl;
     }
 
-    private String distanceUnit;
-
-    public String getDistanceUnit() {
-        return distanceUnit;
-    }
-
-    public void setDistanceUnit(String distanceUnit) {
-        this.distanceUnit = distanceUnit;
-    }
-
-    private String speedUnit;
-
-    public String getSpeedUnit() {
-        return speedUnit;
-    }
-
-    public void setSpeedUnit(String speedUnit) {
-        this.speedUnit = speedUnit;
-    }
-
     private double latitude;
 
     public double getLatitude() {
@@ -168,13 +148,23 @@ public class Server extends Extensible {
         this.coordinateFormat = coordinateFormat;
     }
 
-    private String timezone;
+    private boolean limitCommands;
 
-    public void setTimezone(String timezone) {
-        this.timezone = timezone != null ? TimeZone.getTimeZone(timezone).getID() : null;
+    public boolean getLimitCommands() {
+        return limitCommands;
     }
 
-    public String getTimezone() {
-        return timezone;
+    public void setLimitCommands(boolean limitCommands) {
+        this.limitCommands = limitCommands;
+    }
+
+    private String poiLayer;
+
+    public String getPoiLayer() {
+        return poiLayer;
+    }
+
+    public void setPoiLayer(String poiLayer) {
+        this.poiLayer = poiLayer;
     }
 }

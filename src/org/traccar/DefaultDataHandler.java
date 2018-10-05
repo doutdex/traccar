@@ -15,18 +15,21 @@
  */
 package org.traccar;
 
-import org.traccar.helper.Log;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.model.Position;
 
 public class DefaultDataHandler extends BaseDataHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultDataHandler.class);
 
     @Override
     protected Position handlePosition(Position position) {
 
         try {
-            Context.getDataManager().addPosition(position);
+            Context.getDataManager().addObject(position);
         } catch (Exception error) {
-            Log.warning(error);
+            LOGGER.warn("Failed to store position", error);
         }
 
         return position;

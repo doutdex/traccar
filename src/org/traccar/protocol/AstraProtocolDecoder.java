@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,16 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.channel.Channel;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
+import org.traccar.NetworkMessage;
 import org.traccar.helper.BitUtil;
 import org.traccar.helper.DateBuilder;
-import org.traccar.helper.Log;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.model.Position;
 
@@ -32,6 +34,8 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class AstraProtocolDecoder extends BaseProtocolDecoder {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AstraProtocolDecoder.class);
 
     public AstraProtocolDecoder(AstraProtocol protocol) {
         super(protocol);
@@ -44,10 +48,10 @@ public class AstraProtocolDecoder extends BaseProtocolDecoder {
     protected Object decode(
             Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
 
-        ChannelBuffer buf = (ChannelBuffer) msg;
+        ByteBuf buf = (ByteBuf) msg;
 
         if (channel != null) {
-            channel.write(ChannelBuffers.wrappedBuffer(new byte[] {0x06}), remoteAddress);
+            channel.writeAndFlush(new NetworkMessage(Unpooled.wrappedBuffer(new byte[] {0x06}), remoteAddress));
         }
 
         buf.readUnsignedByte(); // protocol
@@ -63,8 +67,7 @@ public class AstraProtocolDecoder extends BaseProtocolDecoder {
 
         while (buf.readableBytes() > 2) {
 
-            Position position = new Position();
-            position.setProtocol(getProtocolName());
+            Position position = new Position(getProtocolName());
             position.setDeviceId(deviceSession.getDeviceId());
 
             buf.readUnsignedByte(); // index
@@ -105,13 +108,13 @@ public class AstraProtocolDecoder extends BaseProtocolDecoder {
             buf.readUnsignedByte(); // geofence events
 
             if (BitUtil.check(status, 8)) {
-                position.set(Position.KEY_RFID, buf.readBytes(7).toString(StandardCharsets.US_ASCII));
+                position.set(Position.KEY_DRIVER_UNIQUE_ID, buf.readSlice(7).toString(StandardCharsets.US_ASCII));
                 position.set(Position.KEY_ODOMETER, buf.readUnsignedMedium() * 1000);
-                position.set(Position.KEY_HOURS, buf.readUnsignedShort());
+                position.set(Position.KEY_HOURS, UnitsConverter.msFromHours(buf.readUnsignedShort()));
             }
 
             if (BitUtil.check(status, 6)) {
-                Log.warning("Extension data is not supported");
+                LOGGER.warn("Extension data is not supported");
                 return position;
             }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2015 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
-import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
 import org.traccar.helper.UnitsConverter;
@@ -39,8 +38,8 @@ public class XirgoProtocolDecoder extends BaseProtocolDecoder {
             .text("$$")
             .number("(d+),")                     // imei
             .number("(d+),")                     // event
-            .number("(dddd)/(dd)/(dd),")         // date
-            .number("(dd):(dd):(dd),")           // time
+            .number("(dddd)/(dd)/(dd),")         // date (yyyy/mm/dd)
+            .number("(dd):(dd):(dd),")           // time (hh:mm:ss)
             .number("(-?d+.?d*),")               // latitude
             .number("(-?d+.?d*),")               // longitude
             .number("(-?d+.?d*),")               // altitude
@@ -59,8 +58,8 @@ public class XirgoProtocolDecoder extends BaseProtocolDecoder {
             .text("$$")
             .number("(d+),")                     // imei
             .number("(d+),")                     // event
-            .number("(dddd)/(dd)/(dd),")         // date
-            .number("(dd):(dd):(dd),")           // time
+            .number("(dddd)/(dd)/(dd),")         // date (yyyy/mm/dd)
+            .number("(dd):(dd):(dd),")           // time (hh:mm:ss)
             .number("(-?d+.?d*),")               // latitude
             .number("(-?d+.?d*),")               // longitude
             .number("(-?d+.?d*),")               // altitude
@@ -76,8 +75,90 @@ public class XirgoProtocolDecoder extends BaseProtocolDecoder {
             .number("(d+.d+),")                  // battery
             .number("(d+),")                     // gsm
             .number("(d+),")                     // gps
+            .groupBegin()
+            .number("d,")                        // reset mode
+            .expression("([01])")                // input 1
+            .expression("([01])")                // input 1
+            .expression("([01])")                // input 1
+            .expression("([01]),")               // output 1
+            .number("(d+.?d*),")                 // adc 1
+            .number("(d+.?d*),")                 // fuel level
+            .number("d+,")                       // engine load
+            .number("(d+),")                     // engine hours
+            .number("(d+),")                     // oil pressure
+            .number("(d+),")                     // oil level
+            .number("(-?d+),")                   // oil temperature
+            .number("(d+),")                     // coolant pressure
+            .number("(d+),")                     // coolant level
+            .number("(-?d+)")                    // coolant temperature
+            .groupEnd("?")
             .any()
             .compile();
+
+    private void decodeEvent(Position position, int event) {
+
+        position.set(Position.KEY_EVENT, event);
+
+        switch (event) {
+            case 4001:
+            case 4003:
+            case 6011:
+            case 6013:
+                position.set(Position.KEY_IGNITION, true);
+                break;
+            case 4002:
+            case 4004:
+            case 6012:
+            case 6014:
+                position.set(Position.KEY_IGNITION, false);
+                break;
+            case 4005:
+                position.set(Position.KEY_CHARGE, false);
+                break;
+            case 6002:
+                position.set(Position.KEY_ALARM, Position.ALARM_OVERSPEED);
+                break;
+            case 6006:
+                position.set(Position.KEY_ALARM, Position.ALARM_ACCELERATION);
+                break;
+            case 6007:
+                position.set(Position.KEY_ALARM, Position.ALARM_BRAKING);
+                break;
+            case 6008:
+                position.set(Position.KEY_ALARM, Position.ALARM_LOW_POWER);
+                break;
+            case 6009:
+                position.set(Position.KEY_ALARM, Position.ALARM_POWER_CUT);
+                break;
+            case 6010:
+                position.set(Position.KEY_ALARM, Position.ALARM_POWER_RESTORED);
+                break;
+            case 6016:
+                position.set(Position.KEY_ALARM, Position.ALARM_IDLE);
+                break;
+            case 6017:
+                position.set(Position.KEY_ALARM, Position.ALARM_TOW);
+                break;
+            case 6030:
+            case 6071:
+                position.set(Position.KEY_MOTION, true);
+                break;
+            case 6031:
+                position.set(Position.KEY_MOTION, false);
+                break;
+            case 6032:
+                position.set(Position.KEY_ALARM, Position.ALARM_PARKING);
+                break;
+            case 6090:
+                position.set(Position.KEY_ALARM, Position.ALARM_REMOVING);
+                break;
+            case 6091:
+                position.set(Position.KEY_ALARM, Position.ALARM_LOW_BATTERY);
+                break;
+            default:
+                break;
+        }
+    }
 
     @Override
     protected Object decode(
@@ -109,8 +190,7 @@ public class XirgoProtocolDecoder extends BaseProtocolDecoder {
             }
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, parser.next());
         if (deviceSession == null) {
@@ -118,35 +198,48 @@ public class XirgoProtocolDecoder extends BaseProtocolDecoder {
         }
         position.setDeviceId(deviceSession.getDeviceId());
 
-        position.set(Position.KEY_EVENT, parser.next());
+        decodeEvent(position, parser.nextInt());
 
-        DateBuilder dateBuilder = new DateBuilder()
-                .setDate(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
+        position.setTime(parser.nextDateTime());
 
-        position.setLatitude(parser.nextDouble());
-        position.setLongitude(parser.nextDouble());
-        position.setAltitude(parser.nextDouble());
-        position.setSpeed(UnitsConverter.knotsFromMph(parser.nextDouble()));
-        position.setCourse(parser.nextDouble());
+        position.setLatitude(parser.nextDouble(0));
+        position.setLongitude(parser.nextDouble(0));
+        position.setAltitude(parser.nextDouble(0));
+        position.setSpeed(UnitsConverter.knotsFromMph(parser.nextDouble(0)));
+        position.setCourse(parser.nextDouble(0));
 
-        position.set(Position.KEY_SATELLITES, parser.next());
-        position.set(Position.KEY_HDOP, parser.next());
+        position.set(Position.KEY_SATELLITES, parser.nextInt());
+        position.set(Position.KEY_HDOP, parser.nextDouble());
 
         if (newFormat) {
-            position.set(Position.KEY_ODOMETER, parser.nextDouble() * 1609.34);
+            position.set(Position.KEY_ODOMETER, UnitsConverter.metersFromMiles(parser.nextDouble(0)));
             position.set(Position.KEY_FUEL_CONSUMPTION, parser.next());
         }
 
-        position.set(Position.KEY_BATTERY, parser.next());
-        position.set(Position.KEY_RSSI, parser.next());
+        position.set(Position.KEY_BATTERY, parser.nextDouble(0));
+        position.set(Position.KEY_RSSI, parser.nextDouble());
 
         if (!newFormat) {
-            position.set(Position.KEY_ODOMETER, parser.nextDouble() * 1609.34);
+            position.set(Position.KEY_ODOMETER, UnitsConverter.metersFromMiles(parser.nextDouble(0)));
         }
 
-        position.setValid(parser.nextInt() == 1);
+        position.setValid(parser.nextInt(0) == 1);
+
+        if (newFormat && parser.hasNext(13)) {
+            position.set(Position.PREFIX_IN + 1, parser.nextInt());
+            position.set(Position.PREFIX_IN + 2, parser.nextInt());
+            position.set(Position.PREFIX_IN + 3, parser.nextInt());
+            position.set(Position.PREFIX_OUT + 1, parser.nextInt());
+            position.set(Position.PREFIX_ADC + 1, parser.nextDouble());
+            position.set(Position.KEY_FUEL_LEVEL, parser.nextDouble());
+            position.set(Position.KEY_HOURS, UnitsConverter.msFromHours(parser.nextInt()));
+            position.set("oilPressure", parser.nextInt());
+            position.set("oilLevel", parser.nextInt());
+            position.set("oilTemp", parser.nextInt());
+            position.set("coolantPressure", parser.nextInt());
+            position.set("coolantLevel", parser.nextInt());
+            position.set("coolantTemp", parser.nextInt());
+        }
 
         return position;
     }

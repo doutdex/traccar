@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,26 @@
  */
 package org.traccar.helper;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 
 public class BitBuffer {
 
-    private ChannelBuffer buffer = ChannelBuffers.dynamicBuffer();
+    private final ByteBuf buffer;
 
     private int writeByte;
     private int writeCount;
 
     private int readByte;
     private int readCount;
+
+    public BitBuffer() {
+        buffer = Unpooled.buffer();
+    }
+
+    public BitBuffer(ByteBuf buffer) {
+        this.buffer = buffer;
+    }
 
     public void writeEncoded(byte[] bytes) {
         for (byte b : bytes) {

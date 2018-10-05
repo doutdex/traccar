@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 - 2017 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,63 +15,61 @@
  */
 package org.traccar.api.resource;
 
-import java.sql.SQLException;
 import java.util.Collection;
 
-import javax.mail.MessagingException;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
 import org.traccar.Context;
-import org.traccar.api.BaseResource;
+import org.traccar.api.ExtendedObjectResource;
 import org.traccar.model.Event;
 import org.traccar.model.Notification;
-import org.traccar.notification.NotificationMail;
-import org.traccar.notification.NotificationSms;
+import org.traccar.model.Typed;
+import org.traccar.notification.MessageException;
 
-import com.cloudhopper.smpp.type.RecoverablePduException;
-import com.cloudhopper.smpp.type.SmppChannelException;
-import com.cloudhopper.smpp.type.SmppTimeoutException;
-import com.cloudhopper.smpp.type.UnrecoverablePduException;
 
-@Path("users/notifications")
+@Path("notifications")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-public class NotificationResource extends BaseResource {
+public class NotificationResource extends ExtendedObjectResource<Notification> {
+
+    public NotificationResource() {
+        super(Notification.class);
+    }
 
     @GET
-    public Collection<Notification> get(@QueryParam("all") boolean all,
-            @QueryParam("userId") long userId) throws SQLException {
-        if (all) {
-            return Context.getNotificationManager().getAllNotifications();
-        }
-        if (userId == 0) {
-            userId = getUserId();
-        }
-        Context.getPermissionsManager().checkUser(getUserId(), userId);
-        return Context.getNotificationManager().getAllUserNotifications(userId);
+    @Path("types")
+    public Collection<Typed> get() {
+        return Context.getNotificationManager().getAllNotificationTypes();
+    }
+
+    @GET
+    @Path("notificators")
+    public Collection<Typed> getNotificators() {
+        return Context.getNotificatorManager().getAllNotificatorTypes();
     }
 
     @POST
-    public Response update(Notification entity) throws SQLException {
-        Context.getPermissionsManager().checkReadonly(getUserId());
-        Context.getPermissionsManager().checkUser(getUserId(), entity.getUserId());
-        Context.getNotificationManager().updateNotification(entity);
-        return Response.ok(entity).build();
-    }
-
     @Path("test")
+    public Response testMessage() throws MessageException, InterruptedException {
+        for (Typed method : Context.getNotificatorManager().getAllNotificatorTypes()) {
+            Context.getNotificatorManager()
+                    .getNotificator(method.getType()).sendSync(getUserId(), new Event("test", 0), null);
+        }
+        return Response.noContent().build();
+    }
+
     @POST
-    public Response testMessage() throws MessagingException, RecoverablePduException,
-            UnrecoverablePduException, SmppTimeoutException, SmppChannelException, InterruptedException {
-        NotificationMail.sendMailSync(getUserId(), new Event("test", 0), null);
-        NotificationSms.sendSmsSync(getUserId(), new Event("test", 0), null);
+    @Path("test/{notificator}")
+    public Response testMessage(@PathParam("notificator") String notificator)
+            throws MessageException, InterruptedException {
+        Context.getNotificatorManager().getNotificator(notificator).sendSync(getUserId(), new Event("test", 0), null);
         return Response.noContent().build();
     }
 

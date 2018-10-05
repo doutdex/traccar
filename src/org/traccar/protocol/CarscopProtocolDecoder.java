@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Anton Tananaev (anton@traccar.org)
+ * Copyright 2013 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
 import org.traccar.helper.DateBuilder;
@@ -35,7 +35,7 @@ public class CarscopProtocolDecoder extends BaseProtocolDecoder {
     private static final Pattern PATTERN = new PatternBuilder()
             .text("*")
             .any()
-            .number("(dd)(dd)(dd)")              // time
+            .number("(dd)(dd)(dd)")              // time (hhmmss)
             .expression("([AV])")                // validity
             .number("(dd)(dd.dddd)")             // latitude
             .expression("([NS])")
@@ -44,8 +44,10 @@ public class CarscopProtocolDecoder extends BaseProtocolDecoder {
             .number("(ddd.d)")                   // speed
             .number("(dd)(dd)(dd)")              // date (yymmdd)
             .number("(ddd.dd)")                  // course
+            .groupBegin()
             .number("(d{8})")                    // state
             .number("L(d{6})")                   // odometer
+            .groupEnd("?")
             .compile();
 
     @Override
@@ -71,25 +73,26 @@ public class CarscopProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
-        position.setProtocol(getProtocolName());
 
         DateBuilder dateBuilder = new DateBuilder()
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
+                .setTime(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
 
         position.setValid(parser.next().equals("A"));
         position.setLatitude(parser.nextCoordinate());
         position.setLongitude(parser.nextCoordinate());
-        position.setSpeed(parser.nextDouble());
+        position.setSpeed(parser.nextDouble(0));
 
-        dateBuilder.setDate(parser.nextInt(), parser.nextInt(), parser.nextInt());
+        dateBuilder.setDate(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
         position.setTime(dateBuilder.getDate());
 
-        position.setCourse(parser.nextDouble());
+        position.setCourse(parser.nextDouble(0));
 
-        position.set(Position.KEY_STATUS, parser.next());
-        position.set(Position.KEY_ODOMETER, parser.nextInt());
+        if (parser.hasNext(2)) {
+            position.set(Position.KEY_STATUS, parser.next());
+            position.set(Position.KEY_ODOMETER, parser.nextInt(0));
+        }
 
         return position;
     }

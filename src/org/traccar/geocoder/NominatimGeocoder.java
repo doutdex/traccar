@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 - 2015 Anton Tananaev (anton@traccar.org)
+ * Copyright 2014 - 2017 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import javax.json.JsonObject;
 
 public class NominatimGeocoder extends JsonGeocoder {
 
-    private static String formatUrl(String url, String key) {
+    private static String formatUrl(String url, String key, String language) {
         if (url == null) {
             url = "http://nominatim.openstreetmap.org/reverse";
         }
@@ -27,11 +27,14 @@ public class NominatimGeocoder extends JsonGeocoder {
         if (key != null) {
             url += "&key=" + key;
         }
+        if (language != null) {
+            url += "&accept-language=" + language;
+        }
         return url;
     }
 
-    public NominatimGeocoder(String url, String key, int cacheSize) {
-        super(formatUrl(url, key), cacheSize);
+    public NominatimGeocoder(String url, String key, String language, int cacheSize, AddressFormat addressFormat) {
+        super(formatUrl(url, key, language), cacheSize, addressFormat);
     }
 
     @Override
@@ -40,6 +43,10 @@ public class NominatimGeocoder extends JsonGeocoder {
 
         if (result != null) {
             Address address = new Address();
+
+            if (json.containsKey("display_name")) {
+                address.setFormattedAddress(json.getString("display_name"));
+            }
 
             if (result.containsKey("house_number")) {
                 address.setHouse(result.getString("house_number"));

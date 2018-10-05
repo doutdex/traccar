@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,10 @@ package org.traccar.protocol;
 import java.net.SocketAddress;
 import java.util.regex.Pattern;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
 import org.traccar.Protocol;
-import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.Parser.CoordinateFormat;
 import org.traccar.helper.PatternBuilder;
@@ -38,8 +37,8 @@ public class IdplProtocolDecoder extends BaseProtocolDecoder {
             .text("*ID")                         // start of frame
             .number("(d+),")                     // command code
             .number("(d+),")                     // imei
-            .number("(dd)(dd)(dd),")             // current date
-            .number("(dd)(dd)(dd),")             // current time
+            .number("(dd)(dd)(dd),")             // current date (ddmmyy)
+            .number("(dd)(dd)(dd),")             // current time (hhmmss)
             .expression("([A|V]),")              // gps fix
             .number("(dd)(dd).?(d+),([NS]),")    // latitude
             .number("(ddd)(dd).?(d+),([EW]),")   // longitude
@@ -70,10 +69,9 @@ public class IdplProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
 
-        position.set(Position.KEY_TYPE, parser.nextInt());
+        position.set(Position.KEY_TYPE, parser.nextInt(0));
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, parser.next());
         if (deviceSession == null) {
@@ -81,31 +79,28 @@ public class IdplProtocolDecoder extends BaseProtocolDecoder {
         }
         position.setDeviceId(deviceSession.getDeviceId());
 
-        DateBuilder dateBuilder = new DateBuilder()
-                .setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
+        position.setTime(parser.nextDateTime(Parser.DateTimeFormat.DMY_HMS));
 
         position.setValid(parser.next().equals("A"));
         position.setLatitude(parser.nextCoordinate(CoordinateFormat.DEG_MIN_MIN_HEM));
         position.setLongitude(parser.nextCoordinate(CoordinateFormat.DEG_MIN_MIN_HEM));
-        position.setSpeed(parser.nextDouble());
-        position.setCourse(parser.nextDouble());
+        position.setSpeed(parser.nextDouble(0));
+        position.setCourse(parser.nextDouble(0));
 
-        position.set(Position.KEY_SATELLITES, parser.nextInt());
-        position.set(Position.KEY_RSSI, parser.nextInt());
+        position.set(Position.KEY_SATELLITES, parser.nextInt(0));
+        position.set(Position.KEY_RSSI, parser.nextInt(0));
         position.set("vehicleStatus", parser.next());
-        position.set(Position.KEY_POWER, parser.nextInt());
-        position.set(Position.KEY_BATTERY, parser.nextDouble());
-        if (parser.nextInt() == 1) {
+        position.set(Position.KEY_POWER, parser.nextInt(0));
+        position.set(Position.KEY_BATTERY, parser.nextDouble(0));
+        if (parser.nextInt(0) == 1) {
             position.set(Position.KEY_ALARM, Position.ALARM_SOS);
         }
-        parser.nextInt(); // body tamper
-        position.set("acStatus", parser.nextInt());
-        position.set(Position.KEY_IGNITION, parser.nextInt() == 1);
-        position.set(Position.KEY_OUTPUT, parser.nextInt());
-        position.set(Position.PREFIX_ADC + 1, parser.nextInt());
-        position.set(Position.PREFIX_ADC + 2, parser.nextInt());
+        parser.nextInt(0); // body tamper
+        position.set("acStatus", parser.nextInt(0));
+        position.set(Position.KEY_IGNITION, parser.nextInt(0) == 1);
+        position.set(Position.KEY_OUTPUT, parser.nextInt(0));
+        position.set(Position.PREFIX_ADC + 1, parser.nextInt(0));
+        position.set(Position.PREFIX_ADC + 2, parser.nextInt(0));
         position.set(Position.KEY_VERSION_FW, parser.next());
         position.set(Position.KEY_ARCHIVE, parser.next().equals("R"));
 

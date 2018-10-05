@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 - 2014 Anton Tananaev (anton@traccar.org)
+ * Copyright 2013 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.Context;
 import org.traccar.DeviceSession;
+import org.traccar.NetworkMessage;
 import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
@@ -51,7 +52,7 @@ public class GlobalSatProtocolDecoder extends BaseProtocolDecoder {
     private Position decodeOriginal(Channel channel, SocketAddress remoteAddress, String sentence) {
 
         if (channel != null) {
-            channel.write("ACK\r");
+            channel.writeAndFlush(new NetworkMessage("ACK\r", remoteAddress));
         }
 
         String format;
@@ -76,8 +77,7 @@ public class GlobalSatProtocolDecoder extends BaseProtocolDecoder {
         }
         String[] values = sentence.split(",");
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
 
         for (int formatIndex = 0, valueIndex = 1; formatIndex < format.length()
                 && valueIndex < values.length; formatIndex++) {
@@ -165,7 +165,12 @@ public class GlobalSatProtocolDecoder extends BaseProtocolDecoder {
                     position.setCourse(Double.parseDouble(value));
                     break;
                 case 'N':
-                    position.set(Position.KEY_BATTERY, value);
+                    if (value.endsWith("mV")) {
+                        position.set(Position.KEY_BATTERY,
+                                Integer.parseInt(value.substring(0, value.length() - 2)) / 1000.0);
+                    } else {
+                        position.set(Position.KEY_BATTERY_LEVEL, Integer.parseInt(value));
+                    }
                     break;
                 default:
                     // Unsupported
@@ -202,8 +207,7 @@ public class GlobalSatProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, parser.next());
         if (deviceSession == null) {
@@ -212,20 +216,15 @@ public class GlobalSatProtocolDecoder extends BaseProtocolDecoder {
         position.setDeviceId(deviceSession.getDeviceId());
 
         position.setValid(!parser.next().equals("1"));
-
-        DateBuilder dateBuilder = new DateBuilder()
-                .setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
-
+        position.setTime(parser.nextDateTime(Parser.DateTimeFormat.DMY_HMS));
         position.setLongitude(parser.nextCoordinate(Parser.CoordinateFormat.HEM_DEG_MIN));
         position.setLatitude(parser.nextCoordinate(Parser.CoordinateFormat.HEM_DEG_MIN));
-        position.setAltitude(parser.nextDouble());
-        position.setSpeed(parser.nextDouble());
-        position.setCourse(parser.nextDouble());
+        position.setAltitude(parser.nextDouble(0));
+        position.setSpeed(parser.nextDouble(0));
+        position.setCourse(parser.nextDouble(0));
 
-        position.set(Position.KEY_SATELLITES, parser.nextInt());
-        position.set(Position.KEY_HDOP, parser.next());
+        position.set(Position.KEY_SATELLITES, parser.nextInt(0));
+        position.set(Position.KEY_HDOP, parser.nextDouble());
 
         return position;
     }

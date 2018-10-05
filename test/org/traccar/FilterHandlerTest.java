@@ -22,11 +22,12 @@ public class FilterHandlerTest extends BaseTest {
         filtingHandler.setFilterInvalid(true);
         filtingHandler.setFilterZero(true);
         filtingHandler.setFilterDuplicate(true);
+        filtingHandler.setFilterFuture(5 * 60);
         filtingHandler.setFilterApproximate(true);
         filtingHandler.setFilterStatic(true);
         filtingHandler.setFilterDistance(10);
-        filtingHandler.setFilterLimit(10);
-        filtingHandler.setFilterFuture(5 * 60);
+        filtingHandler.setFilterMaxSpeed(500);
+        filtingHandler.setSkipLimit(10);
     }
 
     @After
@@ -62,18 +63,22 @@ public class FilterHandlerTest extends BaseTest {
 
         Position position = createPosition(0, new Date(), true, 10, 10, 10, 10, 10);
 
-        assertNotNull(filtingHandler.decode(null, null, position));
-        assertNotNull(passingHandler.decode(null, null, position));
+        assertNotNull(filtingHandler.handlePosition(position));
+        assertNotNull(passingHandler.handlePosition(position));
 
         position = createPosition(0, new Date(Long.MAX_VALUE), true, 10, 10, 10, 10, 10);
 
-        assertNull(filtingHandler.decode(null, null, position));
-        assertNotNull(passingHandler.decode(null, null, position));
+        assertNull(filtingHandler.handlePosition(position));
+        assertNotNull(passingHandler.handlePosition(position));
 
         position = createPosition(0, new Date(), false, 10, 10, 10, 10, 10);
 
-        assertNull(filtingHandler.decode(null, null, position));
-        assertNotNull(passingHandler.decode(null, null, position));
+        assertNull(filtingHandler.handlePosition(position));
+        assertNotNull(passingHandler.handlePosition(position));
+
+        position.set(Position.KEY_ALARM, Position.ALARM_GENERAL);
+        filtingHandler.setSkipAttributes(true);
+        assertNotNull(filtingHandler.handlePosition(position));
     }
 
 }

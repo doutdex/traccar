@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2015 Anton Tananaev (anton@traccar.org)
+ * Copyright 2012 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,13 @@
  */
 package org.traccar;
 
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelStateEvent;
-import org.jboss.netty.channel.ExceptionEvent;
-import org.jboss.netty.channel.MessageEvent;
-import org.jboss.netty.channel.socket.DatagramChannel;
-import org.jboss.netty.handler.timeout.IdleStateAwareChannelHandler;
-import org.jboss.netty.handler.timeout.IdleStateEvent;
-import org.traccar.helper.Log;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.socket.DatagramChannel;
+import io.netty.handler.timeout.IdleStateEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.model.Position;
 
 import java.sql.SQLException;
@@ -32,7 +30,9 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-public class MainEventHandler extends IdleStateAwareChannelHandler {
+public class MainEventHandler extends ChannelInboundHandlerAdapter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GeocoderHandler.class);
 
     private final Set<String> connectionlessProtocols = new HashSet<>();
 
@@ -44,70 +44,78 @@ public class MainEventHandler extends IdleStateAwareChannelHandler {
     }
 
     @Override
-    public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (msg instanceof Position) {
 
-        if (e.getMessage() != null && e.getMessage() instanceof Position) {
-
-            Position position = (Position) e.getMessage();
+            Position position = (Position) msg;
             try {
                 Context.getDeviceManager().updateLatestPosition(position);
             } catch (SQLException error) {
-                Log.warning(error);
+                LOGGER.warn("Failed to update device", error);
             }
 
-            String uniqueId = Context.getIdentityManager().getDeviceById(position.getDeviceId()).getUniqueId();
+            String uniqueId = Context.getIdentityManager().getById(position.getDeviceId()).getUniqueId();
 
             // Log position
             StringBuilder s = new StringBuilder();
-            s.append(formatChannel(e.getChannel())).append(" ");
-            s.append("id: ").append(uniqueId).append(", ");
-            s.append("time: ").append(
-                    new SimpleDateFormat(Log.DATE_FORMAT).format(position.getFixTime())).append(", ");
-            s.append("lat: ").append(String.format("%.5f", position.getLatitude())).append(", ");
-            s.append("lon: ").append(String.format("%.5f", position.getLongitude())).append(", ");
-            s.append("speed: ").append(String.format("%.1f", position.getSpeed())).append(", ");
-            s.append("course: ").append(String.format("%.1f", position.getCourse()));
+            s.append(formatChannel(ctx.channel())).append(" ");
+            s.append("id: ").append(uniqueId);
+            s.append(", time: ").append(
+                    new SimpleDateFormat(Context.DATE_FORMAT).format(position.getFixTime()));
+            s.append(", lat: ").append(String.format("%.5f", position.getLatitude()));
+            s.append(", lon: ").append(String.format("%.5f", position.getLongitude()));
+            if (position.getSpeed() > 0) {
+                s.append(", speed: ").append(String.format("%.1f", position.getSpeed()));
+            }
+            s.append(", course: ").append(String.format("%.1f", position.getCourse()));
+            if (position.getAccuracy() > 0) {
+                s.append(", accuracy: ").append(String.format("%.1f", position.getAccuracy()));
+            }
             Object cmdResult = position.getAttributes().get(Position.KEY_RESULT);
             if (cmdResult != null) {
                 s.append(", result: ").append(cmdResult);
             }
-            Log.info(s.toString());
+            LOGGER.info(s.toString());
 
             Context.getStatisticsManager().registerMessageStored(position.getDeviceId());
         }
     }
 
     private static String formatChannel(Channel channel) {
-        return String.format("[%08X]", channel.getId());
+        return String.format("[%s]", channel.id().asShortText());
     }
 
     @Override
-    public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) {
-        Log.info(formatChannel(e.getChannel()) + " connected");
-    }
-
-    @Override
-    public void channelDisconnected(ChannelHandlerContext ctx, ChannelStateEvent e) {
-        Log.info(formatChannel(e.getChannel()) + " disconnected");
-        closeChannel(e.getChannel());
-
-        BaseProtocolDecoder protocolDecoder = (BaseProtocolDecoder) ctx.getPipeline().get("objectDecoder");
-        if (ctx.getPipeline().get("httpDecoder") == null
-                && !connectionlessProtocols.contains(protocolDecoder.getProtocolName())) {
-            Context.getConnectionManager().removeActiveDevice(e.getChannel());
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        if (!(ctx.channel() instanceof DatagramChannel)) {
+            LOGGER.info(formatChannel(ctx.channel()) + " connected");
         }
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) {
-        Log.warning(formatChannel(e.getChannel()) + " error", e.getCause());
-        closeChannel(e.getChannel());
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        LOGGER.info(formatChannel(ctx.channel()) + " disconnected");
+        closeChannel(ctx.channel());
+
+        BaseProtocolDecoder protocolDecoder = (BaseProtocolDecoder) ctx.pipeline().get("objectDecoder");
+        if (ctx.pipeline().get("httpDecoder") == null
+                && !connectionlessProtocols.contains(protocolDecoder.getProtocolName())) {
+            Context.getConnectionManager().removeActiveDevice(ctx.channel());
+        }
     }
 
     @Override
-    public void channelIdle(ChannelHandlerContext ctx, IdleStateEvent e) {
-        Log.info(formatChannel(e.getChannel()) + " timed out");
-        closeChannel(e.getChannel());
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        LOGGER.warn(formatChannel(ctx.channel()) + " error", cause);
+        closeChannel(ctx.channel());
+    }
+
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent) {
+            LOGGER.info(formatChannel(ctx.channel()) + " timed out");
+            closeChannel(ctx.channel());
+        }
     }
 
     private void closeChannel(Channel channel) {

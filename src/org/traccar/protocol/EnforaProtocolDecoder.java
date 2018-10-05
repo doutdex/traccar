@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2015 Anton Tananaev (anton@traccar.org)
+ * Copyright 2012 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,14 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBufferIndexFinder;
-import org.jboss.netty.channel.Channel;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
+import org.traccar.helper.BufferUtil;
 import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
-import org.traccar.helper.StringFinder;
 import org.traccar.model.Position;
 
 import java.net.SocketAddress;
@@ -38,7 +37,7 @@ public class EnforaProtocolDecoder extends BaseProtocolDecoder {
 
     private static final Pattern PATTERN = new PatternBuilder()
             .text("GPRMC,")
-            .number("(dd)(dd)(dd).(d+),")        // time
+            .number("(dd)(dd)(dd).?d*,")         // time (hhmmss)
             .expression("([AV]),")               // validity
             .number("(dd)(dd.d+),")              // latitude
             .expression("([NS]),")
@@ -56,23 +55,22 @@ public class EnforaProtocolDecoder extends BaseProtocolDecoder {
     protected Object decode(
             Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
 
-        ChannelBuffer buf = (ChannelBuffer) msg;
+        ByteBuf buf = (ByteBuf) msg;
 
         // Find IMEI number
-        int index = buf.indexOf(buf.readerIndex(), buf.writerIndex(), new ChannelBufferIndexFinder() {
-            @Override
-            public boolean find(ChannelBuffer buffer, int guessedIndex) {
-                if (buffer.writerIndex() - guessedIndex >= IMEI_LENGTH) {
-                    for (int i = 0; i < IMEI_LENGTH; i++) {
-                        if (!Character.isDigit((char) buffer.getByte(guessedIndex + i))) {
-                            return false;
-                        }
-                    }
-                    return true;
+        int index = -1;
+        for (int i = buf.readerIndex(); i < buf.writerIndex() - IMEI_LENGTH; i++) {
+            index = i;
+            for (int j = i; j < i + IMEI_LENGTH; j++) {
+                if (!Character.isDigit((char) buf.getByte(j))) {
+                    index = -1;
+                    break;
                 }
-                return false;
             }
-        });
+            if (index > 0) {
+                break;
+            }
+        }
         if (index == -1) {
             return null;
         }
@@ -84,7 +82,7 @@ public class EnforaProtocolDecoder extends BaseProtocolDecoder {
         }
 
         // Find NMEA sentence
-        int start = buf.indexOf(buf.readerIndex(), buf.writerIndex(), new StringFinder("GPRMC"));
+        int start = BufferUtil.indexOf("GPRMC", buf);
         if (start == -1) {
             return null;
         }
@@ -95,20 +93,19 @@ public class EnforaProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
 
         DateBuilder dateBuilder = new DateBuilder()
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt(), parser.nextInt());
+                .setTime(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
 
         position.setValid(parser.next().equals("A"));
         position.setLatitude(parser.nextCoordinate());
         position.setLongitude(parser.nextCoordinate());
-        position.setSpeed(parser.nextDouble());
-        position.setCourse(parser.nextDouble());
+        position.setSpeed(parser.nextDouble(0));
+        position.setCourse(parser.nextDouble(0));
 
-        dateBuilder.setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt());
+        dateBuilder.setDateReverse(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
         position.setTime(dateBuilder.getDate());
 
         return position;

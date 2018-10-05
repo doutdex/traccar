@@ -15,9 +15,11 @@
  */
 package org.traccar.api;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.Context;
 import org.traccar.api.resource.SessionResource;
-import org.traccar.helper.Log;
+import org.traccar.helper.DataConverter;
 import org.traccar.model.User;
 
 import javax.annotation.security.PermitAll;
@@ -28,12 +30,13 @@ import javax.ws.rs.container.ContainerRequestFilter;
 import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.SecurityContext;
-import javax.xml.bind.DatatypeConverter;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
 public class SecurityRequestFilter implements ContainerRequestFilter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SecurityRequestFilter.class);
 
     public static final String AUTHORIZATION_HEADER = "Authorization";
     public static final String WWW_AUTHENTICATE = "WWW-Authenticate";
@@ -43,7 +46,7 @@ public class SecurityRequestFilter implements ContainerRequestFilter {
 
     public static String[] decodeBasicAuth(String auth) {
         auth = auth.replaceFirst("[B|b]asic ", "");
-        byte[] decodedBytes = DatatypeConverter.parseBase64Binary(auth);
+        byte[] decodedBytes = DataConverter.parseBase64(auth);
         if (decodedBytes != null && decodedBytes.length > 0) {
             return new String(decodedBytes, StandardCharsets.US_ASCII).split(":", 2);
         }
@@ -93,7 +96,7 @@ public class SecurityRequestFilter implements ContainerRequestFilter {
             }
 
         } catch (SecurityException e) {
-            Log.warning(e);
+            LOGGER.warn("Authentication error", e);
         }
 
         if (securityContext != null) {

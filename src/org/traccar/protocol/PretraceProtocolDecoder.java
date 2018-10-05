@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Anton Tananaev (anton@traccar.org)
+ * Copyright 2017 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
-import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
 import org.traccar.helper.UnitsConverter;
@@ -39,8 +38,8 @@ public class PretraceProtocolDecoder extends BaseProtocolDecoder {
             .number("Uddd")                      // type
             .number("d")                         // gps type
             .expression("([AV])")                // validity
-            .number("(dd)(dd)(dd)")              // date
-            .number("(dd)(dd)(dd)")              // time
+            .number("(dd)(dd)(dd)")              // date (yymmdd)
+            .number("(dd)(dd)(dd)")              // time (hhmmss)
             .number("(dd)(dd.dddd)")             // latitude
             .expression("([NS])")
             .number("(ddd)(dd.dddd)")            // longitude
@@ -52,8 +51,8 @@ public class PretraceProtocolDecoder extends BaseProtocolDecoder {
             .number("(x)")                       // satellites
             .number("(dd)")                      // hdop
             .number("(dd)")                      // gsm
-            .expression("(.{8})")                // state
-            .any()
+            .expression("(.{8}),&")              // state
+            .expression("(.+)?")                 // optional data
             .text("^")
             .number("xx")                        // checksum
             .compile();
@@ -72,27 +71,59 @@ public class PretraceProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
 
         position.setValid(parser.next().equals("A"));
 
-        DateBuilder dateBuilder = new DateBuilder()
-                .setDate(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
+        position.setTime(parser.nextDateTime());
 
         position.setLatitude(parser.nextCoordinate());
         position.setLongitude(parser.nextCoordinate());
-        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextInt()));
-        position.setCourse(parser.nextInt());
-        position.setAltitude(parser.nextInt(16));
+        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextInt(0)));
+        position.setCourse(parser.nextInt(0));
+        position.setAltitude(parser.nextHexInt(0));
 
-        position.set(Position.KEY_ODOMETER, parser.nextInt(16));
-        position.set(Position.KEY_SATELLITES, parser.nextInt(16));
-        position.set(Position.KEY_HDOP, parser.nextInt());
-        position.set(Position.KEY_RSSI, parser.nextInt());
+        position.set(Position.KEY_ODOMETER, parser.nextHexInt(0));
+        position.set(Position.KEY_SATELLITES, parser.nextHexInt(0));
+        position.set(Position.KEY_HDOP, parser.nextInt(0));
+        position.set(Position.KEY_RSSI, parser.nextInt(0));
+
+        parser.next(); // state
+
+        if (parser.hasNext()) {
+            for (String value : parser.next().split(",")) {
+                switch (value.charAt(0)) {
+                    case 'P':
+                        if (value.charAt(1) == '1') {
+                            if (value.charAt(4) == '%') {
+                                position.set(Position.KEY_BATTERY_LEVEL, Integer.parseInt(value.substring(2, 4)));
+                            } else {
+                                position.set(Position.KEY_BATTERY, Integer.parseInt(value.substring(2), 16) * 0.01);
+                            }
+                        } else {
+                            position.set(Position.KEY_POWER, Integer.parseInt(value.substring(2), 16) * 0.01);
+                        }
+                        break;
+                    case 'T':
+                        double temperature = Integer.parseInt(value.substring(2), 16) * 0.25;
+                        if (value.charAt(1) == '1') {
+                            position.set(Position.KEY_DEVICE_TEMP, temperature);
+                        } else {
+                            position.set(Position.PREFIX_TEMP + (value.charAt(1) - '0'), temperature);
+                        }
+                        break;
+                    case 'F':
+                        position.set("fuel" + (value.charAt(1) - '0'), Integer.parseInt(value.substring(2), 16) * 0.01);
+                        break;
+                    case 'R':
+                        position.set(Position.KEY_DRIVER_UNIQUE_ID, value.substring(3));
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
 
         return position;
     }

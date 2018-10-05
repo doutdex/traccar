@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Anton Tananaev (anton@traccar.org)
+ * Copyright 2017 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.Context;
 import org.traccar.DeviceSession;
@@ -69,6 +69,29 @@ public class StarLinkProtocolDecoder extends BaseProtocolDecoder {
         return value.charAt(0) == '+' ? result : -result;
     }
 
+    private String decodeAlarm(int event) {
+        switch (event) {
+            case 6:
+                return Position.ALARM_OVERSPEED;
+            case 7:
+                return Position.ALARM_GEOFENCE_ENTER;
+            case 8:
+                return Position.ALARM_GEOFENCE_EXIT;
+            case 9:
+                return Position.ALARM_POWER_CUT;
+            case 11:
+                return Position.ALARM_LOW_BATTERY;
+            case 26:
+                return Position.ALARM_TOW;
+            case 36:
+                return Position.ALARM_SOS;
+            case 42:
+                return Position.ALARM_JAMMING;
+            default:
+                return null;
+        }
+    }
+
     @Override
     protected Object decode(
             Channel channel, SocketAddress remoteAddress, Object msg) throws Exception {
@@ -83,27 +106,33 @@ public class StarLinkProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        int type = parser.nextInt();
+        int type = parser.nextInt(0);
         if (type != MSG_EVENT_REPORT) {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
+        position.setValid(true);
 
-        position.set(Position.KEY_INDEX, parser.nextInt());
+        position.set(Position.KEY_INDEX, parser.nextInt(0));
 
         String[] data = parser.next().split(",");
         Integer lac = null, cid = null;
+        int event = 0;
 
         for (int i = 0; i < Math.min(data.length, dataTags.length); i++) {
+            if (data[i].isEmpty()) {
+                continue;
+            }
             switch (dataTags[i]) {
                 case "#EDT#":
                     position.setDeviceTime(dateFormat.parse(data[i]));
                     break;
-                case "EID":
-                    position.set(Position.KEY_EVENT, data[i]);
+                case "#EID#":
+                    event = Integer.parseInt(data[i]);
+                    position.set(Position.KEY_ALARM, decodeAlarm(event));
+                    position.set(Position.KEY_EVENT, event);
                     break;
                 case "#PDT#":
                     position.setFixTime(dateFormat.parse(data[i]));
@@ -121,7 +150,7 @@ public class StarLinkProtocolDecoder extends BaseProtocolDecoder {
                     position.setCourse(Integer.parseInt(data[i]));
                     break;
                 case "#ODO#":
-                    position.set(Position.KEY_ODOMETER, Integer.parseInt(data[i]));
+                    position.set(Position.KEY_ODOMETER, Long.parseLong(data[i]) * 1000);
                     break;
                 case "#IN1#":
                     position.set(Position.PREFIX_IN + 1, Integer.parseInt(data[i]));
@@ -148,10 +177,14 @@ public class StarLinkProtocolDecoder extends BaseProtocolDecoder {
                     position.set(Position.PREFIX_OUT + 4, Integer.parseInt(data[i]));
                     break;
                 case "#LAC#":
-                    lac = Integer.parseInt(data[i]);
+                    if (!data[i].isEmpty()) {
+                        lac = Integer.parseInt(data[i]);
+                    }
                     break;
                 case "#CID#":
-                    cid = Integer.parseInt(data[i]);
+                    if (!data[i].isEmpty()) {
+                        cid = Integer.parseInt(data[i]);
+                    }
                     break;
                 case "#VIN#":
                     position.set(Position.KEY_POWER, Double.parseDouble(data[i]));
@@ -173,8 +206,20 @@ public class StarLinkProtocolDecoder extends BaseProtocolDecoder {
             }
         }
 
+        if (position.getFixTime() == null) {
+            getLastLocation(position, null);
+        }
+
         if (lac != null && cid != null) {
             position.setNetwork(new Network(CellTower.fromLacCid(lac, cid)));
+        }
+
+        if (event == 20) {
+            String rfid = data[data.length - 1];
+            if (rfid.matches("0+")) {
+                rfid = data[data.length - 2];
+            }
+            position.set(Position.KEY_DRIVER_UNIQUE_ID, rfid);
         }
 
         return position;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2015 - 2017 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,45 +18,55 @@ package org.traccar;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.InvalidPropertiesFormatException;
 import java.util.Properties;
 
 public class Config {
 
     private final Properties properties = new Properties();
-    private Properties defaultProperties;
 
-    public void load(String file) throws IOException {
-        try (InputStream inputStream = new FileInputStream(file)) {
-            properties.loadFromXML(inputStream);
-        }
+    private boolean useEnvironmentVariables;
 
-        String defaultConfigFile = properties.getProperty("config.default");
-        if (defaultConfigFile != null) {
-            try (InputStream inputStream = new FileInputStream(defaultConfigFile)) {
-                defaultProperties = new Properties();
-                defaultProperties.loadFromXML(inputStream);
+    void load(String file) throws IOException {
+        try {
+            Properties mainProperties = new Properties();
+            try (InputStream inputStream = new FileInputStream(file)) {
+                mainProperties.loadFromXML(inputStream);
             }
+
+            String defaultConfigFile = mainProperties.getProperty("config.default");
+            if (defaultConfigFile != null) {
+                try (InputStream inputStream = new FileInputStream(defaultConfigFile)) {
+                    properties.loadFromXML(inputStream);
+                }
+            }
+
+            properties.putAll(mainProperties); // override defaults
+
+            useEnvironmentVariables = Boolean.parseBoolean(System.getenv("CONFIG_USE_ENVIRONMENT_VARIABLES"))
+                    || Boolean.parseBoolean(properties.getProperty("config.useEnvironmentVariables"));
+        } catch (InvalidPropertiesFormatException e) {
+            throw new RuntimeException("Configuration file is not a valid XML document", e);
         }
     }
 
     public boolean hasKey(String key) {
-        return properties.containsKey(key) || defaultProperties != null && defaultProperties.containsKey(key);
+        return useEnvironmentVariables && System.getenv().containsKey(getEnvironmentVariableName(key))
+                || properties.containsKey(key);
     }
 
     public String getString(String key) {
-        if (properties.containsKey(key) || defaultProperties == null) {
-            return properties.getProperty(key);
-        } else {
-            return defaultProperties.getProperty(key);
+        if (useEnvironmentVariables) {
+            String value = System.getenv(getEnvironmentVariableName(key));
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
         }
+        return properties.getProperty(key);
     }
 
     public String getString(String key, String defaultValue) {
-        if (hasKey(key)) {
-            return getString(key);
-        } else {
-            return defaultValue;
-        }
+        return hasKey(key) ? getString(key) : defaultValue;
     }
 
     public boolean getBoolean(String key) {
@@ -68,11 +78,7 @@ public class Config {
     }
 
     public int getInteger(String key, int defaultValue) {
-        if (hasKey(key)) {
-            return Integer.parseInt(getString(key));
-        } else {
-            return defaultValue;
-        }
+        return hasKey(key) ? Integer.parseInt(getString(key)) : defaultValue;
     }
 
     public long getLong(String key) {
@@ -80,11 +86,7 @@ public class Config {
     }
 
     public long getLong(String key, long defaultValue) {
-        if (hasKey(key)) {
-            return Long.parseLong(getString(key));
-        } else {
-            return defaultValue;
-        }
+        return hasKey(key) ? Long.parseLong(getString(key)) : defaultValue;
     }
 
     public double getDouble(String key) {
@@ -92,11 +94,15 @@ public class Config {
     }
 
     public double getDouble(String key, double defaultValue) {
-        if (hasKey(key)) {
-            return Double.parseDouble(getString(key));
-        } else {
-            return defaultValue;
-        }
+        return hasKey(key) ? Double.parseDouble(getString(key)) : defaultValue;
+    }
+
+    public static String getEnvironmentVariableName(String key) {
+        return key.replaceAll("\\.", "_").replaceAll("(\\p{Lu})", "_$1").toUpperCase();
+    }
+
+    public void setString(String key, String value) {
+        properties.put(key, value);
     }
 
 }

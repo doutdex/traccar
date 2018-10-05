@@ -16,7 +16,9 @@
  */
 package org.traccar.smpp;
 
-import org.traccar.helper.Log;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.traccar.events.TextMessageEventHandler;
 
 import com.cloudhopper.commons.charset.CharsetUtil;
 import com.cloudhopper.smpp.SmppConstants;
@@ -24,8 +26,11 @@ import com.cloudhopper.smpp.impl.DefaultSmppSessionHandler;
 import com.cloudhopper.smpp.pdu.DeliverSm;
 import com.cloudhopper.smpp.pdu.PduRequest;
 import com.cloudhopper.smpp.pdu.PduResponse;
+import com.cloudhopper.smpp.util.SmppUtil;
 
 public class ClientSmppSessionHandler extends DefaultSmppSessionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ClientSmppSessionHandler.class);
 
     private SmppClient smppClient;
 
@@ -35,30 +40,33 @@ public class ClientSmppSessionHandler extends DefaultSmppSessionHandler {
 
     @Override
     public void firePduRequestExpired(PduRequest pduRequest) {
-        Log.warning("PDU request expired: " + pduRequest);
+        LOGGER.warn("PDU request expired: " + pduRequest);
     }
 
     @Override
     public PduResponse firePduRequestReceived(PduRequest request) {
-        PduResponse response = null;
+        PduResponse response;
         try {
             if (request instanceof DeliverSm) {
-                if (request.getOptionalParameters() != null) {
-                    Log.debug("SMS Message Delivered: "
-                            + request.getOptionalParameter(SmppConstants.TAG_RECEIPTED_MSG_ID).getValueAsString()
-                            + ", State: "
-                            + request.getOptionalParameter(SmppConstants.TAG_MSG_STATE).getValueAsByte());
+                String sourceAddress = ((DeliverSm) request).getSourceAddress().getAddress();
+                String message = CharsetUtil.decode(((DeliverSm) request).getShortMessage(),
+                        smppClient.mapDataCodingToCharset(((DeliverSm) request).getDataCoding()));
+                LOGGER.info("SMS Message Received: " + message.trim() + ", Source Address: " + sourceAddress);
+
+                boolean isDeliveryReceipt;
+                if (smppClient.getDetectDlrByOpts()) {
+                    isDeliveryReceipt = request.getOptionalParameters() != null;
                 } else {
-                    Log.debug("SMS Message Received: "
-                            + CharsetUtil.decode(((DeliverSm) request).getShortMessage(),
-                            smppClient.mapDataCodingToCharset(((DeliverSm) request).getDataCoding())).trim()
-                            + ", Source Address: "
-                            + ((DeliverSm) request).getSourceAddress().getAddress());
+                    isDeliveryReceipt = SmppUtil.isMessageTypeAnyDeliveryReceipt(((DeliverSm) request).getEsmClass());
+                }
+
+                if (!isDeliveryReceipt) {
+                    TextMessageEventHandler.handleTextMessage(sourceAddress, message);
                 }
             }
             response = request.createResponse();
-        } catch (Throwable error) {
-            Log.warning(error);
+        } catch (Exception error) {
+            LOGGER.warn("SMS receiving error", error);
             response = request.createResponse();
             response.setResultMessage(error.getMessage());
             response.setCommandStatus(SmppConstants.STATUS_UNKNOWNERR);
@@ -68,7 +76,7 @@ public class ClientSmppSessionHandler extends DefaultSmppSessionHandler {
 
     @Override
     public void fireChannelUnexpectedlyClosed() {
-        Log.warning("SMPP session channel unexpectedly closed");
+        LOGGER.warn("SMPP session channel unexpectedly closed");
         smppClient.scheduleReconnect();
     }
 }

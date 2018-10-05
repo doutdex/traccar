@@ -17,6 +17,8 @@ package org.traccar.model;
 
 import java.util.Date;
 
+import org.traccar.database.QueryIgnore;
+
 public class Position extends Message {
 
     public static final String KEY_ORIGINAL = "raw";
@@ -28,34 +30,42 @@ public class Position extends Message {
     public static final String KEY_SATELLITES_VISIBLE = "satVisible";
     public static final String KEY_RSSI = "rssi";
     public static final String KEY_GPS = "gps";
+    public static final String KEY_ROAMING = "roaming";
     public static final String KEY_EVENT = "event";
     public static final String KEY_ALARM = "alarm";
     public static final String KEY_STATUS = "status";
-    public static final String KEY_ODOMETER = "odometer";                 // meters
-    public static final String KEY_ODOMETER_SERVICE = "serviceOdometer";  // meters
-    public static final String KEY_ODOMETER_TRIP = "tripOdometer";        // meters
+    public static final String KEY_ODOMETER = "odometer"; // meters
+    public static final String KEY_ODOMETER_SERVICE = "serviceOdometer"; // meters
+    public static final String KEY_ODOMETER_TRIP = "tripOdometer"; // meters
     public static final String KEY_HOURS = "hours";
+    public static final String KEY_STEPS = "steps";
+    public static final String KEY_HEART_RATE = "heartRate";
     public static final String KEY_INPUT = "input";
     public static final String KEY_OUTPUT = "output";
+    public static final String KEY_IMAGE = "image";
+    public static final String KEY_VIDEO = "video";
+    public static final String KEY_AUDIO = "audio";
 
     // The units for the below four KEYs currently vary.
     // The preferred units of measure are specified in the comment for each.
-    public static final String KEY_POWER = "power";                       // volts
-    public static final String KEY_BATTERY = "battery";                   // volts (or percentage appending '%')
-    public static final String KEY_FUEL_LEVEL = "fuel";                   // liters
-    public static final String KEY_FUEL_CONSUMPTION = "fuelConsumption";  // liters/hour
+    public static final String KEY_POWER = "power"; // volts
+    public static final String KEY_BATTERY = "battery"; // volts
+    public static final String KEY_BATTERY_LEVEL = "batteryLevel"; // percentage
+    public static final String KEY_FUEL_LEVEL = "fuel"; // liters
+    public static final String KEY_FUEL_USED = "fuelUsed"; // liters
+    public static final String KEY_FUEL_CONSUMPTION = "fuelConsumption"; // liters/hour
 
-    public static final String KEY_RFID = "rfid";
     public static final String KEY_VERSION_FW = "versionFw";
     public static final String KEY_VERSION_HW = "versionHw";
     public static final String KEY_TYPE = "type";
     public static final String KEY_IGNITION = "ignition";
     public static final String KEY_FLAGS = "flags";
+    public static final String KEY_ANTENNA = "antenna";
     public static final String KEY_CHARGE = "charge";
     public static final String KEY_IP = "ip";
     public static final String KEY_ARCHIVE = "archive";
-    public static final String KEY_DISTANCE = "distance";                 // meters
-    public static final String KEY_TOTAL_DISTANCE = "totalDistance";      // meters
+    public static final String KEY_DISTANCE = "distance"; // meters
+    public static final String KEY_TOTAL_DISTANCE = "totalDistance"; // meters
     public static final String KEY_RPM = "rpm";
     public static final String KEY_VIN = "vin";
     public static final String KEY_APPROXIMATE = "approximate";
@@ -64,15 +74,22 @@ public class Position extends Message {
     public static final String KEY_ARMED = "armed";
     public static final String KEY_GEOFENCE = "geofence";
     public static final String KEY_ACCELERATION = "acceleration";
-    public static final String KEY_DEVICE_TEMP = "deviceTemp";            // celsius
+    public static final String KEY_DEVICE_TEMP = "deviceTemp"; // celsius
+    public static final String KEY_COOLANT_TEMP = "coolantTemp"; // celsius
+    public static final String KEY_ENGINE_LOAD = "engineLoad";
     public static final String KEY_OPERATOR = "operator";
     public static final String KEY_COMMAND = "command";
+    public static final String KEY_BLOCKED = "blocked";
+    public static final String KEY_DOOR = "door";
+    public static final String KEY_AXLE_WEIGHT = "axleWeight";
 
     public static final String KEY_DTCS = "dtcs";
-    public static final String KEY_OBD_SPEED = "obdSpeed";                // knots
-    public static final String KEY_OBD_ODOMETER = "obdOdometer";          // meters
+    public static final String KEY_OBD_SPEED = "obdSpeed"; // knots
+    public static final String KEY_OBD_ODOMETER = "obdOdometer"; // meters
 
     public static final String KEY_RESULT = "result";
+
+    public static final String KEY_DRIVER_UNIQUE_ID = "driverUniqueId";
 
     // Start with 1 not 0
     public static final String PREFIX_TEMP = "temp";
@@ -95,24 +112,40 @@ public class Position extends Message {
     public static final String ALARM_POWER_OFF = "powerOff";
     public static final String ALARM_POWER_ON = "powerOn";
     public static final String ALARM_DOOR = "door";
+    public static final String ALARM_LOCK = "lock";
+    public static final String ALARM_UNLOCK = "unlock";
     public static final String ALARM_GEOFENCE = "geofence";
     public static final String ALARM_GEOFENCE_ENTER = "geofenceEnter";
     public static final String ALARM_GEOFENCE_EXIT = "geofenceExit";
     public static final String ALARM_GPS_ANTENNA_CUT = "gpsAntennaCut";
     public static final String ALARM_ACCIDENT = "accident";
     public static final String ALARM_TOW = "tow";
+    public static final String ALARM_IDLE = "idle";
+    public static final String ALARM_HIGH_RPM = "highRpm";
     public static final String ALARM_ACCELERATION = "hardAcceleration";
-    public static final String ALARM_BREAKING = "hardBreaking";
+    public static final String ALARM_BRAKING = "hardBraking";
+    public static final String ALARM_CORNERING = "hardCornering";
+    public static final String ALARM_LANE_CHANGE = "laneChange";
     public static final String ALARM_FATIGUE_DRIVING = "fatigueDriving";
     public static final String ALARM_POWER_CUT = "powerCut";
+    public static final String ALARM_POWER_RESTORED = "powerRestored";
     public static final String ALARM_JAMMING = "jamming";
     public static final String ALARM_TEMPERATURE = "temperature";
     public static final String ALARM_PARKING = "parking";
     public static final String ALARM_SHOCK = "shock";
     public static final String ALARM_BONNET = "bonnet";
     public static final String ALARM_FOOT_BRAKE = "footBrake";
-    public static final String ALARM_OIL_LEAK = "oilLeak";
+    public static final String ALARM_FUEL_LEAK = "fuelLeak";
     public static final String ALARM_TAMPERING = "tampering";
+    public static final String ALARM_REMOVING = "removing";
+
+    public Position() {
+    }
+
+    public Position(String protocol) {
+        this.protocol = protocol;
+        this.serverTime = new Date();
+    }
 
     private String protocol;
 
@@ -127,55 +160,31 @@ public class Position extends Message {
     private Date serverTime;
 
     public Date getServerTime() {
-        if (serverTime != null) {
-            return new Date(serverTime.getTime());
-        } else {
-            return null;
-        }
+        return serverTime;
     }
 
     public void setServerTime(Date serverTime) {
-        if (serverTime != null) {
-            this.serverTime = new Date(serverTime.getTime());
-        } else {
-            this.serverTime = null;
-        }
+        this.serverTime = serverTime;
     }
 
     private Date deviceTime;
 
     public Date getDeviceTime() {
-        if (deviceTime != null) {
-            return new Date(deviceTime.getTime());
-        } else {
-            return null;
-        }
+        return deviceTime;
     }
 
     public void setDeviceTime(Date deviceTime) {
-        if (deviceTime != null) {
-            this.deviceTime = new Date(deviceTime.getTime());
-        } else {
-            this.deviceTime = null;
-        }
+        this.deviceTime = deviceTime;
     }
 
     private Date fixTime;
 
     public Date getFixTime() {
-        if (fixTime != null) {
-            return new Date(fixTime.getTime());
-        } else {
-            return null;
-        }
+        return fixTime;
     }
 
     public void setFixTime(Date fixTime) {
-        if (fixTime != null) {
-            this.fixTime = new Date(fixTime.getTime());
-        } else {
-            this.fixTime = null;
-        }
+        this.fixTime = fixTime;
     }
 
     public void setTime(Date time) {
@@ -185,6 +194,7 @@ public class Position extends Message {
 
     private boolean outdated;
 
+    @QueryIgnore
     public boolean getOutdated() {
         return outdated;
     }
@@ -281,6 +291,12 @@ public class Position extends Message {
 
     public void setNetwork(Network network) {
         this.network = network;
+    }
+
+    @Override
+    @QueryIgnore
+    public String getType() {
+        return super.getType();
     }
 
 }

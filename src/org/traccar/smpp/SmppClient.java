@@ -1,6 +1,6 @@
 /*
- * Copyright 2017 Anton Tananaev (anton@traccar.org)
- * Copyright 2017 Andrey Kunitsyn (andrey@traccar.org)
+ * Copyright 2017 - 2018 Anton Tananaev (anton@traccar.org)
+ * Copyright 2017 - 2018 Andrey Kunitsyn (andrey@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,8 +23,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.Context;
-import org.traccar.helper.Log;
+import org.traccar.notification.MessageException;
+import org.traccar.sms.SmsManager;
 
 import com.cloudhopper.commons.charset.CharsetUtil;
 import com.cloudhopper.smpp.SmppBindType;
@@ -35,19 +38,22 @@ import com.cloudhopper.smpp.impl.DefaultSmppClient;
 import com.cloudhopper.smpp.impl.DefaultSmppSessionHandler;
 import com.cloudhopper.smpp.pdu.SubmitSm;
 import com.cloudhopper.smpp.pdu.SubmitSmResp;
+import com.cloudhopper.smpp.tlv.Tlv;
 import com.cloudhopper.smpp.type.Address;
 import com.cloudhopper.smpp.type.RecoverablePduException;
 import com.cloudhopper.smpp.type.SmppChannelException;
 import com.cloudhopper.smpp.type.SmppTimeoutException;
 import com.cloudhopper.smpp.type.UnrecoverablePduException;
 
-public class SmppClient {
+public class SmppClient implements SmsManager {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SmppClient.class);
 
     private SmppSessionConfiguration sessionConfig = new SmppSessionConfiguration();
     private SmppSession smppSession;
     private DefaultSmppSessionHandler sessionHandler = new ClientSmppSessionHandler(this);
     private ExecutorService executorService = Executors.newCachedThreadPool();
-    private DefaultSmppClient clientBootstrap = new DefaultSmppClient(executorService, 1);
+    private DefaultSmppClient clientBootstrap = new DefaultSmppClient();
 
     private ScheduledExecutorService enquireLinkExecutor;
     private ScheduledFuture<?> enquireLinkTask;
@@ -61,6 +67,8 @@ public class SmppClient {
     private String sourceAddress;
     private String commandSourceAddress;
     private int submitTimeout;
+    private boolean requestDlr;
+    private boolean detectDlrByOpts;
     private String notificationsCharsetName;
     private byte notificationsDataCoding;
     private String commandsCharsetName;
@@ -82,6 +90,7 @@ public class SmppClient {
         sessionConfig.setHost(Context.getConfig().getString("sms.smpp.host", "localhost"));
         sessionConfig.setPort(Context.getConfig().getInteger("sms.smpp.port", 2775));
         sessionConfig.setSystemId(Context.getConfig().getString("sms.smpp.username", "user"));
+        sessionConfig.setSystemType(Context.getConfig().getString("sms.smpp.systemType", null));
         sessionConfig.setPassword(Context.getConfig().getString("sms.smpp.password", "password"));
         sessionConfig.getLoggingOptions().setLogBytes(false);
         sessionConfig.getLoggingOptions().setLogPdu(Context.getConfig().getBoolean("sms.smpp.logPdu"));
@@ -89,6 +98,9 @@ public class SmppClient {
         sourceAddress = Context.getConfig().getString("sms.smpp.sourceAddress", "");
         commandSourceAddress = Context.getConfig().getString("sms.smpp.commandSourceAddress", sourceAddress);
         submitTimeout = Context.getConfig().getInteger("sms.smpp.submitTimeout", 10000);
+
+        requestDlr = Context.getConfig().getBoolean("sms.smpp.requestDlr");
+        detectDlrByOpts = Context.getConfig().getBoolean("sms.smpp.detectDlrByOpts");
 
         notificationsCharsetName = Context.getConfig().getString("sms.smpp.notificationsCharset",
                 CharsetUtil.NAME_UCS_2);
@@ -149,16 +161,20 @@ public class SmppClient {
         }
     }
 
+    public boolean getDetectDlrByOpts() {
+        return detectDlrByOpts;
+    }
+
     protected synchronized void reconnect() {
         try {
             disconnect();
             smppSession = clientBootstrap.bind(sessionConfig, sessionHandler);
             stopReconnectionkTask();
             runEnquireLinkTask();
-            Log.info("SMPP session connected");
+            LOGGER.info("SMPP session connected");
         } catch (SmppTimeoutException | SmppChannelException
                 | UnrecoverablePduException | InterruptedException error) {
-            Log.warning("Unable to connect to SMPP server: ", error);
+            LOGGER.warn("Unable to connect to SMPP server: ", error);
         }
     }
 
@@ -195,44 +211,59 @@ public class SmppClient {
 
     private void destroySession() {
         if (smppSession != null) {
-            Log.debug("Cleaning up SMPP session... ");
+            LOGGER.info("Cleaning up SMPP session... ");
             smppSession.destroy();
             smppSession = null;
         }
     }
 
+    @Override
     public synchronized void sendMessageSync(String destAddress, String message, boolean command)
-            throws RecoverablePduException, UnrecoverablePduException, SmppTimeoutException, SmppChannelException,
-            InterruptedException, IllegalStateException {
+            throws MessageException, InterruptedException, IllegalStateException {
         if (getSession() != null && getSession().isBound()) {
-            SubmitSm submit = new SubmitSm();
-            byte[] textBytes;
-            textBytes = CharsetUtil.encode(message, command ? commandsCharsetName : notificationsCharsetName);
-            submit.setDataCoding(command ? commandsDataCoding : notificationsDataCoding);
-            submit.setShortMessage(textBytes);
-            submit.setSourceAddress(command ? new Address(commandSourceTon, commandSourceNpi, commandSourceAddress)
-                    : new Address(sourceTon, sourceNpi, sourceAddress));
-            submit.setDestAddress(new Address(destTon, destNpi, destAddress));
-            SubmitSmResp submitResponce = getSession().submit(submit, submitTimeout);
-            if (submitResponce.getCommandStatus() == SmppConstants.STATUS_OK) {
-                Log.debug("SMS submitted, message id: " + submitResponce.getMessageId());
-            } else {
-                throw new IllegalStateException(submitResponce.getResultMessage());
+            try {
+                SubmitSm submit = new SubmitSm();
+                byte[] textBytes;
+                textBytes = CharsetUtil.encode(message, command ? commandsCharsetName : notificationsCharsetName);
+                submit.setDataCoding(command ? commandsDataCoding : notificationsDataCoding);
+                if (requestDlr) {
+                    submit.setRegisteredDelivery(SmppConstants.REGISTERED_DELIVERY_SMSC_RECEIPT_REQUESTED);
+                }
+
+                if (textBytes != null && textBytes.length > 255) {
+                    submit.addOptionalParameter(new Tlv(SmppConstants.TAG_MESSAGE_PAYLOAD, textBytes,
+                        "message_payload"));
+                } else {
+                    submit.setShortMessage(textBytes);
+                }
+
+                submit.setSourceAddress(command ? new Address(commandSourceTon, commandSourceNpi, commandSourceAddress)
+                        : new Address(sourceTon, sourceNpi, sourceAddress));
+                submit.setDestAddress(new Address(destTon, destNpi, destAddress));
+                SubmitSmResp submitResponce = getSession().submit(submit, submitTimeout);
+                if (submitResponce.getCommandStatus() == SmppConstants.STATUS_OK) {
+                    LOGGER.info("SMS submitted, message id: " + submitResponce.getMessageId());
+                } else {
+                    throw new IllegalStateException(submitResponce.getResultMessage());
+                }
+            } catch (SmppChannelException | RecoverablePduException
+                    | SmppTimeoutException | UnrecoverablePduException error) {
+                throw new MessageException(error);
             }
         } else {
-            throw new SmppChannelException("SMPP session is not connected");
+            throw new MessageException(new SmppChannelException("SMPP session is not connected"));
         }
     }
 
+    @Override
     public void sendMessageAsync(final String destAddress, final String message, final boolean command) {
         executorService.execute(new Runnable() {
             @Override
             public void run() {
                 try {
                     sendMessageSync(destAddress, message, command);
-                } catch (InterruptedException | RecoverablePduException | UnrecoverablePduException
-                        | SmppTimeoutException | SmppChannelException | IllegalStateException error) {
-                    Log.warning(error);
+                } catch (MessageException | InterruptedException | IllegalStateException error) {
+                    LOGGER.warn("SMS sending error", error);
                 }
             }
         });

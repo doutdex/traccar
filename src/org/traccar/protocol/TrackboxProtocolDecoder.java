@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 - 2015 Anton Tananaev (anton@traccar.org)
+ * Copyright 2014 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
+import org.traccar.NetworkMessage;
 import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
@@ -33,7 +34,7 @@ public class TrackboxProtocolDecoder extends BaseProtocolDecoder {
     }
 
     private static final Pattern PATTERN = new PatternBuilder()
-            .number("(dd)(dd)(dd).(ddd),")       // time
+            .number("(dd)(dd)(dd).(ddd),")       // time (hhmmss.sss)
             .number("(dd)(dd.dddd)([NS]),")      // latitude
             .number("(ddd)(dd.dddd)([EW]),")     // longitude
             .number("(d+.d),")                   // hdop
@@ -42,13 +43,13 @@ public class TrackboxProtocolDecoder extends BaseProtocolDecoder {
             .number("(d+.d+),")                  // course
             .number("d+.d+,")                    // speed (kph)
             .number("(d+.d+),")                  // speed (knots)
-            .number("(dd)(dd)(dd),")             // date
+            .number("(dd)(dd)(dd),")             // date (ddmmyy)
             .number("(d+)")                      // satellites
             .compile();
 
-    private void sendResponse(Channel channel) {
+    private void sendResponse(Channel channel, SocketAddress remoteAddress) {
         if (channel != null) {
-            channel.write("=OK=\r\n");
+            channel.writeAndFlush(new NetworkMessage("=OK=\r\n", remoteAddress));
         }
     }
 
@@ -61,7 +62,7 @@ public class TrackboxProtocolDecoder extends BaseProtocolDecoder {
         if (sentence.startsWith("a=connect")) {
             String id = sentence.substring(sentence.indexOf("i=") + 2);
             if (getDeviceSession(channel, remoteAddress, id) != null) {
-                sendResponse(channel);
+                sendResponse(channel, remoteAddress);
             }
             return null;
         }
@@ -75,33 +76,32 @@ public class TrackboxProtocolDecoder extends BaseProtocolDecoder {
         if (!parser.matches()) {
             return null;
         }
-        sendResponse(channel);
+        sendResponse(channel, remoteAddress);
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
 
         DateBuilder dateBuilder = new DateBuilder()
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt(), parser.nextInt());
+                .setTime(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
 
         position.setLatitude(parser.nextCoordinate());
         position.setLongitude(parser.nextCoordinate());
 
-        position.set(Position.KEY_HDOP, parser.next());
+        position.set(Position.KEY_HDOP, parser.nextDouble());
 
-        position.setAltitude(parser.nextDouble());
+        position.setAltitude(parser.nextDouble(0));
 
-        int fix = parser.nextInt();
+        int fix = parser.nextInt(0);
         position.set(Position.KEY_GPS, fix);
         position.setValid(fix > 0);
 
-        position.setCourse(parser.nextDouble());
-        position.setSpeed(parser.nextDouble());
+        position.setCourse(parser.nextDouble(0));
+        position.setSpeed(parser.nextDouble(0));
 
-        dateBuilder.setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt());
+        dateBuilder.setDateReverse(parser.nextInt(0), parser.nextInt(0), parser.nextInt(0));
         position.setTime(dateBuilder.getDate());
 
-        position.set(Position.KEY_SATELLITES, parser.next());
+        position.set(Position.KEY_SATELLITES, parser.nextInt());
 
         return position;
     }

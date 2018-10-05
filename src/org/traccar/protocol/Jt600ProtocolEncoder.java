@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
  */
 package org.traccar.protocol;
 
+import java.util.TimeZone;
+
 import org.traccar.StringProtocolEncoder;
-import org.traccar.helper.Log;
 import org.traccar.model.Command;
 
 public class Jt600ProtocolEncoder extends StringProtocolEncoder {
+
     @Override
     protected Object encodeCommand(Command command) {
 
@@ -29,15 +31,13 @@ public class Jt600ProtocolEncoder extends StringProtocolEncoder {
             case Command.TYPE_ENGINE_RESUME:
                 return "(S07,1)";
             case Command.TYPE_SET_TIMEZONE:
-                int offset = command.getInteger(Command.KEY_TIMEZONE) / 60;
+                int offset = TimeZone.getTimeZone(command.getString(Command.KEY_TIMEZONE)).getRawOffset() / 60000;
                 return "(S09,1," + offset + ")";
             case Command.TYPE_REBOOT_DEVICE:
                 return "(S17)";
             default:
-                Log.warning(new UnsupportedOperationException(command.getType()));
-                break;
+                return null;
         }
-
-        return null;
     }
+
 }

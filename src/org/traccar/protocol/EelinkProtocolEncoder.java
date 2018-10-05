@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,31 +15,77 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.BaseProtocolEncoder;
-import org.traccar.helper.Log;
+import org.traccar.helper.DataConverter;
 import org.traccar.model.Command;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class EelinkProtocolEncoder extends BaseProtocolEncoder {
 
-    private ChannelBuffer encodeContent(String content) {
+    private static final Logger LOGGER = LoggerFactory.getLogger(EelinkProtocolEncoder.class);
 
-        ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
+    private boolean connectionless;
+
+    public EelinkProtocolEncoder(boolean connectionless) {
+        this.connectionless = connectionless;
+    }
+
+    public static int checksum(ByteBuffer buf) {
+        int sum = 0;
+        while (buf.hasRemaining()) {
+            sum = (((sum << 1) | (sum >> 15)) + (buf.get() & 0xFF)) & 0xFFFF;
+        }
+        return sum;
+    }
+
+    public static ByteBuf encodeContent(
+            boolean connectionless, String uniqueId, int type, int index, ByteBuf content) {
+
+        ByteBuf buf = Unpooled.buffer();
+
+        if (connectionless) {
+            buf.writeBytes(DataConverter.parseHex('0' + uniqueId));
+        }
 
         buf.writeByte(0x67);
         buf.writeByte(0x67);
-        buf.writeByte(EelinkProtocolDecoder.MSG_DOWNLINK);
-        buf.writeShort(2 + 1 + 4 + content.length()); // length
-        buf.writeShort(0); // index
+        buf.writeByte(type);
+        buf.writeShort(2 + (content != null ? content.readableBytes() : 0)); // length
+        buf.writeShort(index);
+
+        if (content != null) {
+            buf.writeBytes(content);
+        }
+
+        ByteBuf result = Unpooled.buffer();
+
+        if (connectionless) {
+            result.writeByte('E');
+            result.writeByte('L');
+            result.writeShort(2 + buf.readableBytes()); // length
+            result.writeShort(checksum(buf.nioBuffer()));
+        }
+
+        result.writeBytes(buf);
+
+        return result;
+    }
+
+    private ByteBuf encodeContent(long deviceId, String content) {
+
+        ByteBuf buf = Unpooled.buffer();
 
         buf.writeByte(0x01); // command
         buf.writeInt(0); // server id
         buf.writeBytes(content.getBytes(StandardCharsets.UTF_8));
 
-        return buf;
+        return encodeContent(connectionless, getUniqueId(deviceId), EelinkProtocolDecoder.MSG_DOWNLINK, 0, buf);
     }
 
     @Override
@@ -47,19 +93,18 @@ public class EelinkProtocolEncoder extends BaseProtocolEncoder {
 
         switch (command.getType()) {
             case Command.TYPE_CUSTOM:
-                return encodeContent(command.getString(Command.KEY_DATA));
+                return encodeContent(command.getDeviceId(), command.getString(Command.KEY_DATA));
+            case Command.TYPE_POSITION_SINGLE:
+                return encodeContent(command.getDeviceId(), "WHERE#");
             case Command.TYPE_ENGINE_STOP:
-                return encodeContent("RELAY,1#");
+                return encodeContent(command.getDeviceId(), "RELAY,1#");
             case Command.TYPE_ENGINE_RESUME:
-                return encodeContent("RELAY,0#");
+                return encodeContent(command.getDeviceId(), "RELAY,0#");
             case Command.TYPE_REBOOT_DEVICE:
-                return encodeContent("RESET#");
+                return encodeContent(command.getDeviceId(), "RESET#");
             default:
-                Log.warning(new UnsupportedOperationException(command.getType()));
-                break;
+                return null;
         }
-
-        return null;
     }
 
 }

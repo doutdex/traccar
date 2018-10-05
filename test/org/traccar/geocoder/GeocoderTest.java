@@ -1,15 +1,19 @@
 package org.traccar.geocoder;
 
-import org.junit.Assert;
+import java.util.Locale;
+
 import org.junit.Ignore;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
 
 public class GeocoderTest {
 
     @Ignore
     @Test
     public void test() throws InterruptedException {
-        testGoogle();
+        Locale.setDefault(Locale.US);
+        testBan();
     }
 
     private String address;
@@ -29,25 +33,26 @@ public class GeocoderTest {
     }
 
     public void testGoogle() throws InterruptedException {
-        Geocoder geocoder = new GoogleGeocoder(null, null, 0);
+        Geocoder geocoder = new GoogleGeocoder(null, null, 0, new AddressFormat());
 
-        geocoder.getAddress(new AddressFormat(), 31.776797, 35.211489, new Geocoder.ReverseGeocoderCallback() {
+        geocoder.getAddress(31.776797, 35.211489, new Geocoder.ReverseGeocoderCallback() {
             @Override
             public void onSuccess(String address) {
                 setAddress(address);
             }
 
             @Override
-            public void onFailure(Throwable e) {
+            public void onFailure(final Throwable e) {
             }
         });
-        Assert.assertEquals("1 Ibn Shaprut St, Jerusalem, Jerusalem District, IL", waitAddress());
+
+        assertEquals("1 Ibn Shaprut St, Jerusalem, Jerusalem District, IL", waitAddress());
     }
 
     public void testNominatim() throws InterruptedException {
-        Geocoder geocoder = new NominatimGeocoder(null, null, 0);
+        Geocoder geocoder = new NominatimGeocoder(null, null, null, 0, new AddressFormat());
 
-        geocoder.getAddress(new AddressFormat(), 40.7337807, -73.9974401, new Geocoder.ReverseGeocoderCallback() {
+        geocoder.getAddress(40.7337807, -73.9974401, new Geocoder.ReverseGeocoderCallback() {
             @Override
             public void onSuccess(String address) {
                 setAddress(address);
@@ -57,13 +62,14 @@ public class GeocoderTest {
             public void onFailure(Throwable e) {
             }
         });
-        Assert.assertEquals("35 West 9th Street, NYC, New York, US",  waitAddress());
+
+        assertEquals("35 West 9th Street, NYC, New York, US", waitAddress());
     }
 
     public void testGisgraphy() throws InterruptedException {
-        Geocoder geocoder = new GisgraphyGeocoder();
+        Geocoder geocoder = new GisgraphyGeocoder(new AddressFormat());
 
-        geocoder.getAddress(new AddressFormat(), 48.8530000, 2.3400000, new Geocoder.ReverseGeocoderCallback() {
+        geocoder.getAddress(48.8530000, 2.3400000, new Geocoder.ReverseGeocoderCallback() {
             @Override
             public void onSuccess(String address) {
                 setAddress(address);
@@ -73,14 +79,15 @@ public class GeocoderTest {
             public void onFailure(Throwable e) {
             }
         });
-        Assert.assertEquals("Rue du Jardinet, Paris, FR",  waitAddress());
+
+        assertEquals("Rue du Jardinet, Paris, Île-de-France, FR", waitAddress());
     }
 
     public void testOpenCage() throws InterruptedException {
         Geocoder geocoder = new OpenCageGeocoder(
-                "http://api.opencagedata.com/geocode/v1", "SECRET", 0);
+                "http://api.opencagedata.com/geocode/v1", "SECRET", 0, new AddressFormat());
 
-        geocoder.getAddress(new AddressFormat(), 34.116302, -118.051519, new Geocoder.ReverseGeocoderCallback() {
+        geocoder.getAddress(34.116302, -118.051519, new Geocoder.ReverseGeocoderCallback() {
             @Override
             public void onSuccess(String address) {
                 setAddress(address);
@@ -90,13 +97,14 @@ public class GeocoderTest {
             public void onFailure(Throwable e) {
             }
         });
-        Assert.assertEquals("Charleston Road, California, US",  waitAddress());
+
+        assertEquals("Charleston Road, California, US", waitAddress());
     }
 
     public void testGeocodeFarm() throws InterruptedException {
-        Geocoder geocoder = new GeocodeFarmGeocoder(null, null, 0);
+        Geocoder geocoder = new GeocodeFarmGeocoder(null, null, 0, new AddressFormat());
 
-        geocoder.getAddress(new AddressFormat(), 34.116302, -118.051519, new Geocoder.ReverseGeocoderCallback() {
+        geocoder.getAddress(34.116302, -118.051519, new Geocoder.ReverseGeocoderCallback() {
             @Override
             public void onSuccess(String address) {
                 setAddress(address);
@@ -106,7 +114,44 @@ public class GeocoderTest {
             public void onFailure(Throwable e) {
             }
         });
-        Assert.assertEquals("Estrella Avenue, Arcadia, California, United States",  waitAddress());
+
+        assertEquals("Estrella Avenue, Arcadia, California, United States", waitAddress());
+    }
+
+    public void testGeocodeXyz() throws InterruptedException {
+        Geocoder geocoder = new GeocodeXyzGeocoder(null, 0, new AddressFormat());
+
+        geocoder.getAddress(34.116302, -118.051519, new Geocoder.ReverseGeocoderCallback() {
+            @Override
+            public void onSuccess(String address) {
+                setAddress(address);
+            }
+
+            @Override
+            public void onFailure(Throwable e) {
+            }
+        });
+
+        assertEquals("605 ESTRELLA AVE, ARCADIA, California United States of America, US", waitAddress());
+    }
+
+    @Ignore
+    @Test
+    public void testBan() throws InterruptedException {
+        Geocoder geocoder = new BanGeocoder(0, new AddressFormat("%f [%d], %c"));
+
+        geocoder.getAddress(48.8575, 2.2944, new Geocoder.ReverseGeocoderCallback() {
+            @Override
+            public void onSuccess(String address) {
+                setAddress(address);
+            }
+
+            @Override
+            public void onFailure(Throwable e) {
+            }
+        });
+
+        assertEquals("8 Avenue Gustave Eiffel 75007 Paris [75, Paris, Île-de-France], FR", waitAddress());
     }
 
 }

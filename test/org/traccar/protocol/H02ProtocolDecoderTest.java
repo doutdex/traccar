@@ -2,6 +2,7 @@ package org.traccar.protocol;
 
 import org.junit.Test;
 import org.traccar.ProtocolTest;
+import org.traccar.model.Position;
 
 public class H02ProtocolDecoderTest extends ProtocolTest {
 
@@ -9,6 +10,66 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
     public void testDecode() throws Exception {
 
         H02ProtocolDecoder decoder = new H02ProtocolDecoder(new H02Protocol());
+
+        verifyPosition(decoder, binary(
+                "2435248308419329301047591808172627335900074412294E024138FEFFFFFFFF01120064BA73005ECC"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,4210209006,V1,054048,A,2828.2297,N,07733.4332,E,000.5,047,4,080918,EEE7FBDF,4261193,0#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,353505221264507,V2,100220,0,5238.26259,N,00507.33983,E,0.25,0,280917,FFFFFFFF,cc,28,  db,d75b#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,,V1,173212,A,2225.78879,S,02829.19021,E,0.00,0,290418,FFFFFBFF#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,353505221264507,VI1,075146,0,5238.25900,N,00507.33429,E,0.54,0,250917,FFFFFFFF,cc,28,  db,d75b#"));
+
+        verifyNull(decoder, buffer(
+                "*HQ,353505510948929,V1,,V,,N,,E,0.00,0,,FFFFF7FF,f0,a,11a0,c0c6#"));
+
+        verifyPosition(decoder, buffer(
+                "*hq,356327080425330,VP1,A,2702.7245,S,15251.9311,E,0.48,0.0000,080917#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,4209951296,V19,214452,A,5201.0178,N,01830.5029,E,000.00,000,200417,,195.63.13.195,89480610500392633029,BFFFFBFF#"));
+
+        verifyPosition(decoder, buffer(
+                "*hq,356327080425330,VP1,A,2702.7215,S,15251.9309,E,0.62,0.0000,050917#"));
+
+        verifyNull(decoder, buffer(
+                "*HQ,356327080425330,XT,1,100#"));
+
+        verifyAttributes(decoder, buffer(
+                "*HQ,353111080001055,V3,044855,28403,01,001450,011473,158,-62,0292,0,X,030817,FFFFFBFF#"));
+
+        verifyPosition(decoder, binary(
+                "2442091341332059572807175137358006000183640e000000fffffbfdff001f080000000000ea1e0000000021"));
+
+        verifyNull(decoder, buffer(
+                "*HQ,4109198974,#"));
+
+        verifyAttributes(decoder, buffer(
+                "*HQ,1700086468,LINK,180902,15,0,84,0,0,240517,FFFFFBFF#"));
+
+        verifyAttributes(decoder, buffer(
+                "*HQ,355488020882405,V3,095426,74001,01,010278,045142,128,-92,02DE,0,X,090517,FFFFFBFF#"));
+
+        verifyAttributes(decoder, buffer(
+                "*HQ,355488020882405,V3,095426,74001,04,010278,045142,128,-92,010278,026311,125,,010278,026582,125,,010278,028322,119,,02DD,0,X,090517,FFFFFBFF#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,4109179024,V19,181519,V,3853.2587,S,06205.9175,W,000.00,000,090217,,5492932630888,8954315265044716555?,FFFFFBFF#"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,8161289587,V1,181933,A,5444.3994,N,02516.3844,E,000.05,000,090317,FFFFBBFF,246,03,00002,41565#"));
+
+        verifyPosition(decoder, binary(
+                "2421305109380127171003170520046500100286297e003085ffffdfffff03440069129344006400001151415a20"));
+
+        verifyPosition(decoder, buffer(
+                "*HQ,2130510938,V1,012632,A,0520.0663,N,10028.6324,E,0.286,023,100317,FFFFDFFF,69129336,0,100.0,18,5141,5A20#"));
 
         verifyPosition(decoder, buffer(
                 "*HQ,4210209006,V1,201812,A,2608.9437,N,08016.2521,W,000.80,000,150317,EFE7F9FF,310,260,0,0,6#"));
@@ -22,7 +83,7 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
         verifyAttributes(decoder, buffer(
                 "*HQ,4109179024,NBR,103732,722,310,0,6,8106,32010,23,8101,22007,25,8106,12010,23,8106,22105,22,8101,22012,16,8106,42010,5,100217,FFFFFBFF,5#"));
 
-        verifyNothing(decoder, buffer(
+        verifyAttributes(decoder, buffer(
                 "*HQ,355488020930796,V3,002339,62160,06,024852,035421,148,0,024852,035425,143,,022251,036482,137,,024852,000335,133,,024852,031751,133,,024852,035423,133,,02A1,0,X,010104,EFE7FBFF#"));
 
         verifyPosition(decoder, buffer(
@@ -37,7 +98,7 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
         verifyPosition(decoder, buffer(
                 "*HQ,353588020068342,V1,084436,A,3257.01525,N,00655.03865,W,57.78,40,011216,FFFBFFFF,25c,a, 154,b04c#"));
 
-        verifyNothing(decoder, buffer(
+        verifyNull(decoder, buffer(
                 "*HQ,356803210091319,BS,,2d4,a,1b63,1969,26,1b63,10b2,31,0,0,25,,ffffffff,60#"));
 
         verifyAttributes(decoder, buffer(
@@ -49,10 +110,10 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
         verifyAttributes(decoder, buffer(
                 "*HQ,1600068860,NBR,110326,262,03,255,6,802,23152,23,812,49449,14,802,35382,13,802,35402,11,812,56622,09,802,23132,04,081116,FFFFFBFF#"));
 
-        verifyNothing(decoder, buffer(
+        verifyAttributes(decoder, buffer(
                 "*HQ,1600068860,LINK,112137,20,8,67,0,0,081116,FFFFFBFF#"));
 
-        verifyNothing(decoder, buffer(
+        verifyAttributes(decoder, buffer(
                 "*HQ,355488020533263,V3,121536,65501,04,000152,014001,156,-64,000161,010642,138,,000152,014003,129,,000152,013973,126,,02E4,0,X,071116,FFFFFBFF#"));
 
         verifyPosition(decoder, buffer(
@@ -82,7 +143,7 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
                 "*HQ,1451316409,V1,030149,A,-23-29.0095,S,-46-51.5852,W,2.4,065,070315,FFFFFFFF#"),
                 position("2015-03-07 03:01:49.000", true, -23.48349, -46.85975));
 
-        verifyNothing(decoder, buffer(
+        verifyNull(decoder, buffer(
                 "*HQ,353588020068342,V1,000000,V,0.0000,0,0.0000,0,0.00,0.00,000000,ffffffff,000106,000002,000203,004c87,16#"));
 
         verifyPosition(decoder, buffer(
@@ -104,7 +165,7 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
                 "*HQ,2705171109,V1,213324,A,5002.5849,N,01433.7822,E,0.00,000,140613,FFFFFFFF#"));
         
         verifyPosition(decoder, buffer(
-                "*TH,2020916012,V1,050316,A,2212.8745,N,11346.6574,E,14.28,028,220902,FFFFFBFF#"));
+                "*TH,2020916012,V1,050316,A,2212.8745,N,11346.6574,E,14.28,028,220902,FFFFFBFF#\r\n"));
         
         verifyPosition(decoder, buffer(
                 "*TH,2020916012,V4,S17,130305,050316,A,2212.8745,N,11346.6574,E,14.28,028,220902,FFFFFBFF#"));
@@ -142,7 +203,7 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
         verifyPosition(decoder, buffer(
                 "*HQ,356823035368767,V1,083618,A,0955.6392,N,07809.0796,E,0.00,0,070414,FFFBFFFF,194,3b5,  71,c9a9#"));
 
-        verifyNothing(decoder, buffer(
+        verifyNull(decoder, buffer(
                 "*HQ,8401016597,BASE,152609,0,0,0,0,211014,FFFFFFFF#"));
 
         verifyPosition(decoder, binary(
@@ -172,6 +233,25 @@ public class H02ProtocolDecoderTest extends ProtocolTest {
         
         verifyPosition(decoder, binary(
                 "24971305007205201916101533335008000073206976000000effffbffff000252776566060000000000000000000049"));
+
+    }
+
+    @Test
+    public void testDecodeStatus() throws Exception {
+
+        H02ProtocolDecoder decoder = new H02ProtocolDecoder(new H02Protocol());
+
+        verifyAttribute(decoder, buffer(
+                "*HQ,2705171109,V1,213324,A,5002.5849,N,01433.7822,E,0.00,000,140613,FFFFFFFF#"),
+                Position.KEY_STATUS, 0xFFFFFFFFL);
+
+        verifyAttribute(decoder, binary(
+                "2441091144271222470112142233983006114026520E000000FFFFFBFFFF0014060000000001CC00262B0F170A"),
+                Position.KEY_STATUS, 0xFFFFFBFFL);
+
+        verifyAttribute(decoder, buffer(
+                "*HQ,4210051415,V1,164549,A,0956.3869,N,08406.7068,W,000.00,000,221215,FFFFFBFF,712,01,0,0,6#"),
+                Position.KEY_STATUS, 0xFFFFFBFFL);
 
     }
 

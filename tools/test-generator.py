@@ -5,20 +5,22 @@ import math
 import urllib
 import httplib
 import time
+import random
 
 id = '123456789012345'
 server = 'localhost:5055'
 period = 1
 step = 0.001
 device_speed = 40
+driver_id = '123456'
 
 waypoints = [
-    (40.722412, -74.006288),
-    (40.728592, -74.005258),
-    (40.728348, -74.002822),
-    (40.725437, -73.996750),
-    (40.721778, -73.999818),
-    (40.723323, -74.002994)
+    (48.853780, 2.344347),
+    (48.855235, 2.345852),
+    (48.857238, 2.347153),
+    (48.858509, 2.342563),
+    (48.856066, 2.340432),
+    (48.854780, 2.342230)
 ]
 
 points = []
@@ -33,7 +35,7 @@ for i in range(0, len(waypoints)):
         lon = lon1 + (lon2 - lon1) * j / count
         points.append((lat, lon))
 
-def send(conn, lat, lon, course, speed, alarm, ignition, accuracy):
+def send(conn, lat, lon, course, speed, alarm, ignition, accuracy, rpm, fuel, driverUniqueId):
     params = (('id', id), ('timestamp', int(time.time())), ('lat', lat), ('lon', lon), ('bearing', course), ('speed', speed))
     if alarm:
         params = params + (('alarm', 'sos'),)
@@ -41,6 +43,12 @@ def send(conn, lat, lon, course, speed, alarm, ignition, accuracy):
         params = params + (('ignition', 'true'),)
     if accuracy:
         params = params + (('accuracy', accuracy),)
+    if rpm:
+        params = params + (('rpm', rpm),)
+    if fuel:
+        params = params + (('fuel', fuel),)
+    if driverUniqueId:
+        params = params + (('driverUniqueId', driverUniqueId),)
     conn.request('GET', '?' + urllib.urlencode(params))
     conn.getresponse().read()
 
@@ -64,6 +72,9 @@ while True:
     alarm = (index % 10) == 0
     ignition = (index % len(points)) != 0
     accuracy = 100 if (index % 10) == 0 else 0
-    send(conn, lat1, lon1, course(lat1, lon1, lat2, lon2), speed, alarm, ignition, accuracy)
+    rpm = random.randint(500, 4000)
+    fuel = random.randint(0, 80)
+    driverUniqueId = driver_id if (index % len(points)) == 0 else False
+    send(conn, lat1, lon1, course(lat1, lon1, lat2, lon2), speed, alarm, ignition, accuracy, rpm, fuel, driverUniqueId)
     time.sleep(period)
     index += 1

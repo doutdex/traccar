@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 - 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2014 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,10 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
 import org.traccar.helper.BitUtil;
-import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
 import org.traccar.helper.UnitsConverter;
@@ -35,8 +34,8 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
     }
 
     private static final Pattern PATTERN_FIX = new PatternBuilder()
-            .number("(d+)/(d+)/(d+),")           // date
-            .number("(d+):(d+):(d+),")           // time
+            .number("(d+)/(d+)/(d+),")           // date (dd/mm/yy)
+            .number("(d+):(d+):(d+),")           // time (hh:mm:ss)
             .number("(-?d+.d+),")                // latitude
             .number("(-?d+.d+),")                // longitude
             .compile();
@@ -47,12 +46,6 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
             .number("(x+),")                     // flags
             .number("(-?d+.d+),")                // altitude (meters)
             .number("(d+),")                     // battery (percentage)
-            .compile();
-
-    private static final Pattern PATTERN_GPS_PRECISION = new PatternBuilder()
-            .number("(d+),")                     // satellites in use
-            .number("(d+),")                     // satellites in view
-            .number("(d+.?d*)")                  // hdop
             .compile();
 
     private static final Pattern PATTERN_A = new PatternBuilder()
@@ -68,28 +61,28 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
             .any()                               // unknown 3 fields
             .compile();
 
-    // The !B (buffered data) records are the same as !D (live data) records.
     private static final Pattern PATTERN_BD = new PatternBuilder()
-            .expression("![BD],")
+            .expression("![BD],")                // B - buffered, D - live
             .expression(PATTERN_FIX.pattern())
             .expression(PATTERN_STATE.pattern())
-            .expression(PATTERN_GPS_PRECISION.pattern())
+            .number("(d+),")                     // satellites in use
+            .number("(d+),")                     // satellites in view
+            .number("(d+.?d*)")                  // hdop
             .compile();
 
     private void decodeFix(Position position, Parser parser) {
 
-        DateBuilder dateBuilder = new DateBuilder()
-                .setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
-
-        position.setLatitude(parser.nextDouble());
-        position.setLongitude(parser.nextDouble());
+        position.setTime(parser.nextDateTime(Parser.DateTimeFormat.DMY_HMS));
+        position.setLatitude(parser.nextDouble(0));
+        position.setLongitude(parser.nextDouble(0));
     }
 
     private void decodeFlags(Position position, int flags) {
 
-        position.setValid(BitUtil.check(flags, 0));
+        position.setValid(BitUtil.to(flags, 2) > 0);
+        if (BitUtil.check(flags, 1)) {
+            position.set(Position.KEY_APPROXIMATE, true);
+        }
 
         if (BitUtil.check(flags, 2)) {
             position.set(Position.KEY_ALARM, Position.ALARM_FAULT);
@@ -113,31 +106,24 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
             position.set(Position.KEY_ALARM, Position.ALARM_MOVEMENT);
         }
 
-        position.set(Position.KEY_RSSI, BitUtil.between(flags, 16, 20));
+        position.set(Position.KEY_RSSI, BitUtil.between(flags, 16, 21));
         position.set(Position.KEY_CHARGE, BitUtil.check(flags, 22));
     }
 
     private void decodeState(Position position, Parser parser) {
 
-        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextDouble()));
+        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextDouble(0)));
 
-        position.setCourse(parser.nextDouble());
+        position.setCourse(parser.nextDouble(0));
         if (position.getCourse() > 360) {
             position.setCourse(0);
         }
 
-        decodeFlags(position, parser.nextInt(16));
+        decodeFlags(position, parser.nextHexInt(0));
 
-        position.setAltitude(parser.nextDouble());
+        position.setAltitude(parser.nextDouble(0));
 
-        position.set(Position.KEY_BATTERY, parser.nextInt());
-    }
-
-    private void decodeGPSPrecision(Position position, Parser parser) {
-
-        position.set(Position.KEY_SATELLITES, parser.nextInt());
-        position.set(Position.KEY_SATELLITES_VISIBLE, parser.nextInt());
-        position.set(Position.KEY_HDOP, parser.nextDouble());
+        position.set(Position.KEY_BATTERY_LEVEL, parser.nextInt(0));
     }
 
     @Override
@@ -147,29 +133,27 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
         String sentence = (String) msg;
 
         if (sentence.startsWith("!1,")) {
-
-            getDeviceSession(channel, remoteAddress, sentence.substring(3, sentence.length()));
-
+            int index = sentence.indexOf(',', 3);
+            if (index < 0) {
+                index = sentence.length();
+            }
+            getDeviceSession(channel, remoteAddress, sentence.substring(3, index));
             return null;
         }
 
         DeviceSession deviceSession = getDeviceSession(channel, remoteAddress);
-        if (deviceSession == null) {
+        if (deviceSession == null || !sentence.matches("![A-D],.*")) {
             return null;
         }
 
-        if (!sentence.matches("![A-D],.*")) {
-            return null;
-        }
-
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
 
-        String recordType = sentence.substring(1, 2);
-        position.set(Position.KEY_TYPE, recordType);
+        String type = sentence.substring(1, 2);
+        position.set(Position.KEY_TYPE, type);
 
-        if (recordType.matches("[BD]")) {
+        if (type.equals("B") || type.equals("D")) {
+
             Parser parser = new Parser(PATTERN_BD, sentence);
             if (!parser.matches()) {
                 return null;
@@ -177,12 +161,15 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
 
             decodeFix(position, parser);
             decodeState(position, parser);
-            decodeGPSPrecision(position, parser);
+
+            position.set(Position.KEY_SATELLITES, parser.nextInt(0));
+            position.set(Position.KEY_SATELLITES_VISIBLE, parser.nextInt(0));
+            position.set(Position.KEY_HDOP, parser.nextDouble(0));
 
             return position;
-        }
 
-        if (recordType.matches("C")) {
+        } else if (type.equals("C")) {
+
             Parser parser = new Parser(PATTERN_C, sentence);
             if (!parser.matches()) {
                 return null;
@@ -192,9 +179,9 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
             decodeState(position, parser);
 
             return position;
-        }
 
-        if (recordType.matches("A")) {
+        } else if (type.equals("A")) {
+
             Parser parser = new Parser(PATTERN_A, sentence);
             if (!parser.matches()) {
                 return null;
@@ -203,6 +190,7 @@ public class MiniFinderProtocolDecoder extends BaseProtocolDecoder {
             decodeFix(position, parser);
 
             return position;
+
         }
 
         return null;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Anton Tananaev (anton@traccar.org)
+ * Copyright 2017 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,15 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
-import org.traccar.helper.DateBuilder;
 import org.traccar.helper.Parser;
 import org.traccar.helper.PatternBuilder;
 import org.traccar.helper.UnitsConverter;
 import org.traccar.model.Position;
 
 import java.net.SocketAddress;
-import java.util.TimeZone;
 import java.util.regex.Pattern;
 
 public class SiwiProtocolDecoder extends BaseProtocolDecoder {
@@ -53,8 +51,8 @@ public class SiwiProtocolDecoder extends BaseProtocolDecoder {
             .number("(-?d+.d+),")                // longitude
             .number("(-?d+),")                   // altitude
             .number("(d+),")                     // course
-            .number("(dd)(dd)(dd),")             // time
-            .number("(dd)(dd)(dd),")             // date
+            .number("(dd)(dd)(dd),")             // time (hhmmss)
+            .number("(dd)(dd)(dd),")             // date (ddmmyy)
             .any()
             .compile();
 
@@ -72,28 +70,24 @@ public class SiwiProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        Position position = new Position();
-        position.setProtocol(getProtocolName());
+        Position position = new Position(getProtocolName());
         position.setDeviceId(deviceSession.getDeviceId());
 
         position.set(Position.KEY_EVENT, parser.next());
         position.set(Position.KEY_IGNITION, parser.next().equals("1"));
-        position.set(Position.KEY_ODOMETER, parser.nextInt());
+        position.set(Position.KEY_ODOMETER, parser.nextInt(0));
 
-        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextInt()));
+        position.setSpeed(UnitsConverter.knotsFromKph(parser.nextInt(0)));
 
-        position.set(Position.KEY_SATELLITES, parser.nextInt());
+        position.set(Position.KEY_SATELLITES, parser.nextInt(0));
 
         position.setValid(parser.next().equals("A"));
-        position.setLatitude(parser.nextDouble());
-        position.setLongitude(parser.nextDouble());
-        position.setAltitude(parser.nextDouble());
-        position.setCourse(parser.nextInt());
+        position.setLatitude(parser.nextDouble(0));
+        position.setLongitude(parser.nextDouble(0));
+        position.setAltitude(parser.nextDouble(0));
+        position.setCourse(parser.nextInt(0));
 
-        DateBuilder dateBuilder = new DateBuilder(TimeZone.getTimeZone("IST"))
-                .setTime(parser.nextInt(), parser.nextInt(), parser.nextInt())
-                .setDateReverse(parser.nextInt(), parser.nextInt(), parser.nextInt());
-        position.setTime(dateBuilder.getDate());
+        position.setTime(parser.nextDateTime(Parser.DateTimeFormat.HMS_DMY, "IST"));
 
         return position;
     }

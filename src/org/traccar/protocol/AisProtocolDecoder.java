@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2018 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package org.traccar.protocol;
 
-import org.jboss.netty.channel.Channel;
+import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
 import org.traccar.DeviceSession;
 import org.traccar.helper.BitBuffer;
@@ -61,8 +61,7 @@ public class AisProtocolDecoder extends BaseProtocolDecoder {
                 return null;
             }
 
-            Position position = new Position();
-            position.setProtocol(getProtocolName());
+            Position position = new Position(getProtocolName());
             position.setDeviceId(deviceSession.getDeviceId());
 
             position.setTime(new Date());
@@ -103,9 +102,9 @@ public class AisProtocolDecoder extends BaseProtocolDecoder {
                 Parser parser = new Parser(PATTERN, sentence);
                 if (parser.matches()) {
 
-                    int count = parser.nextInt();
-                    int index = parser.nextInt();
-                    int id = parser.nextInt();
+                    int count = parser.nextInt(0);
+                    int index = parser.nextInt(0);
+                    int id = parser.nextInt(0);
 
                     Position position = null;
 
